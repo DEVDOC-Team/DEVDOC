@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,12 +15,19 @@ class Settings(BaseSettings):
         env_prefix="",
     )
 
+    # ------------------------------------------------------------------ #
+    # Application
+    # ------------------------------------------------------------------ #
     app_name: str = Field(default="DEVDOC API")
     app_version: str = Field(default="0.1.0")
     environment: str = Field(default="development")
     debug: bool = Field(default=True)
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
+
+    # ------------------------------------------------------------------ #
+    # CORS
+    # ------------------------------------------------------------------ #
     cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",
@@ -38,6 +45,48 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return [str(origin).strip() for origin in value if str(origin).strip()]
         return value
+
+    # ------------------------------------------------------------------ #
+    # Database — PostgreSQL / Supabase
+    #
+    # DATABASE_URL      — async URL used by SQLAlchemy at runtime
+    #                     format: postgresql+asyncpg://user:pass@host:port/db
+    #
+    # DIRECT_DATABASE_URL — non-pooled URL for Alembic migrations
+    #                     format: postgresql+psycopg2://user:pass@host:port/db
+    #                     (or postgresql+asyncpg:// for async migrations)
+    # ------------------------------------------------------------------ #
+    database_url: str = Field(default="")
+    direct_database_url: str = Field(default="")
+
+    # Connection-pool tuning
+    db_pool_size: int = Field(default=5)
+    db_max_overflow: int = Field(default=10)
+    db_pool_timeout: int = Field(default=30)
+    db_pool_recycle: int = Field(default=1800)
+    db_echo: bool = Field(default=False)
+
+    # ------------------------------------------------------------------ #
+    # Supabase
+    #
+    # SUPABASE_SERVICE_ROLE_KEY — backend-only; NEVER sent to frontend
+    # SUPABASE_ANON_KEY         — safe for frontend/public use
+    # ------------------------------------------------------------------ #
+    supabase_url: str = Field(default="")
+    supabase_anon_key: str = Field(default="")
+    supabase_service_role_key: SecretStr = Field(default=SecretStr(""))
+
+    # ------------------------------------------------------------------ #
+    # Convenience helpers
+    # ------------------------------------------------------------------ #
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() == "production"
+
+    @property
+    def database_configured(self) -> bool:
+        """True when a real database URL has been provided."""
+        return bool(self.database_url)
 
 
 settings = Settings()

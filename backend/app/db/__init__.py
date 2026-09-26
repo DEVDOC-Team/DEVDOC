@@ -1,1 +1,1 @@
-"""Database layer package."""
+"""DEVDOC database package."""
