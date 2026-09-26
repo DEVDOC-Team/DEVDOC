@@ -10,6 +10,17 @@ Audit requirements
 * decision     — APPROVED | REJECTED
 * rationale    — free-text justification (required for rejection)
 * timestamp    — inherited from TimestampMixin (created_at is the decision time)
+
+Phase 3 additions
+-----------------
+* ``UniqueConstraint`` on ``(fix_proposal_id, approver_id)`` — one
+  approver may only render one decision per proposal.  If they change
+  their mind, the old record must be updated (not duplicated).
+* ``review_note``   — optional private note visible only to the reviewer
+                      (separate from the ``rationale`` which is surfaced
+                      to the proposal author).
+* Composite index on ``(fix_proposal_id, decision)`` — for querying
+  who approved/rejected a proposal.
 """
 
 from __future__ import annotations
@@ -18,7 +29,7 @@ import enum
 import uuid
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -31,6 +42,14 @@ class ApprovalDecision(str, enum.Enum):
 
 class Approval(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "approvals"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "fix_proposal_id", "approver_id",
+            name="uq_approvals_fix_proposal_approver",
+        ),
+        Index("ix_approvals_fix_proposal_id_decision", "fix_proposal_id", "decision"),
+    )
 
     fix_proposal_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("fix_proposals.id", ondelete="CASCADE"),
@@ -51,6 +70,9 @@ class Approval(UUIDMixin, TimestampMixin, Base):
 
     # Required for REJECTED; optional for APPROVED
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Private reviewer note (not shown to proposal author)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Git ref actually applied (populated by the deployment agent after APPROVED)
     applied_commit_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)

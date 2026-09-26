@@ -2,11 +2,11 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE platform that helps development teams investigate application, infrastructure, and deployment problems — and propose verified fixes.
 
-> ⚠️ **Phase 1 — Backend Foundation only.** The platform is under active development. Not all features are available yet.
+> ⚠️ **Phase 3 — Database Models & Relationships complete.** Phases 1–3 of the backend are implemented. Authentication, RLS, and API endpoints are coming in subsequent phases.
 
 ---
 
-## Backend — Phase 1 Foundation
+## Backend — Phase 3 — Database Models & Relationships
 
 ### Technology Stack
 
