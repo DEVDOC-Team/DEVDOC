@@ -2,22 +2,27 @@
 
 Import all models here so Alembic's env.py can discover metadata
 by importing a single symbol: ``from app.models import Base``.
+
+Phase 3: enums are also exported for use in Pydantic schemas and API
+response serialisation in later phases.
 """
 
 from app.db.base import Base
-from app.models.approval import Approval
-from app.models.audit_log import AuditLog
-from app.models.deployment import Deployment
-from app.models.evidence import Evidence
-from app.models.fix_proposal import FixProposal
-from app.models.incident import Incident
-from app.models.investigation import Investigation
+from app.models.approval import Approval, ApprovalDecision
+from app.models.audit_log import AuditLog, AuditOutcome
+from app.models.deployment import Deployment, DeploymentStatus
+from app.models.evidence import Evidence, EvidenceKind
+from app.models.fix_proposal import FixProposal, FixStatus
+from app.models.incident import Incident, IncidentSeverity, IncidentStatus
+from app.models.investigation import Investigation, InvestigationStatus
 from app.models.project import Project
-from app.models.repository import Repository
+from app.models.repository import Repository, VCSProvider
 from app.models.user import User
 
 __all__ = [
+    # Base
     "Base",
+    # Models
     "User",
     "Project",
     "Repository",
@@ -28,4 +33,14 @@ __all__ = [
     "FixProposal",
     "Approval",
     "AuditLog",
+    # Enums
+    "VCSProvider",
+    "IncidentSeverity",
+    "IncidentStatus",
+    "InvestigationStatus",
+    "EvidenceKind",
+    "DeploymentStatus",
+    "FixStatus",
+    "ApprovalDecision",
+    "AuditOutcome",
 ]

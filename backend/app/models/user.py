@@ -10,11 +10,20 @@ PostgreSQL Row Level Security will eventually scope all queries by
 the resource type.  The ``id`` column intentionally mirrors the
 Supabase auth.users UUID so foreign-key relationships work across the
 auth and public schemas without duplication.
+
+Phase 3 additions
+-----------------
+* ``last_sign_in_at``   — populated by the auth phase; useful for
+                          activity dashboards without leaking auth tokens.
+* Composite index on ``(provider, provider_user_id)`` for fast OAuth
+  lookup during sign-in.
 """
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, String, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -25,6 +34,8 @@ class User(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint("email", name="uq_users_email"),
+        # Fast OAuth provider lookup
+        Index("ix_users_provider_provider_user_id", "provider", "provider_user_id"),
     )
 
     # Core identity — sourced from OAuth provider in the auth phase
@@ -41,6 +52,11 @@ class User(UUIDMixin, TimestampMixin, Base):
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     provider_user_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
+    # Last sign-in timestamp (set by auth middleware; no auth tokens stored here)
+    last_sign_in_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # ------------------------------------------------------------------ #
     # Relationships
     # ------------------------------------------------------------------ #
@@ -48,10 +64,15 @@ class User(UUIDMixin, TimestampMixin, Base):
         "Project", back_populates="owner", cascade="all, delete-orphan"
     )
     audit_logs: Mapped[list[AuditLog]] = relationship(  # type: ignore[name-defined]
-        "AuditLog", back_populates="actor", cascade="all, delete-orphan"
+        "AuditLog", back_populates="actor"
+        # No cascade — audit logs survive user deletion (actor SET NULL)
     )
     approvals: Mapped[list[Approval]] = relationship(  # type: ignore[name-defined]
         "Approval", back_populates="approver", cascade="all, delete-orphan"
+    )
+    # Investigations initiated by this user
+    investigations: Mapped[list[Investigation]] = relationship(  # type: ignore[name-defined]
+        "Investigation", back_populates="initiated_by", foreign_keys="Investigation.initiated_by_id"
     )
 
     def __repr__(self) -> str:
