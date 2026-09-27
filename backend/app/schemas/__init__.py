@@ -26,6 +26,14 @@ from app.schemas.incident import (
     IncidentStatusUpdate,
     IncidentUpdate,
 )
+from app.schemas.investigation import (
+    InvestigationCreate,
+    InvestigationDeleteResponse,
+    InvestigationListResponse,
+    InvestigationResponse,
+    InvestigationStatusUpdate,
+    InvestigationUpdate,
+)
 from app.schemas.project import (
     ProjectBase,
     ProjectCreate,
@@ -57,6 +65,12 @@ __all__ = [
     "IncidentResponse",
     "IncidentStatusUpdate",
     "IncidentUpdate",
+    "InvestigationCreate",
+    "InvestigationDeleteResponse",
+    "InvestigationListResponse",
+    "InvestigationResponse",
+    "InvestigationStatusUpdate",
+    "InvestigationUpdate",
     "ProjectBase",
     "ProjectCreate",
     "ProjectDeleteResponse",

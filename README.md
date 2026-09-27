@@ -1,447 +1,445 @@
 # DEVDOC
 
-**DEVDOC** is an AI-powered DevOps and SRE platform that helps development teams investigate application, infrastructure, and deployment problems — and propose verified fixes.
+**DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate verified fixes with human-in-the-loop approval.
 
-> ⚠️ **Phase 4 — Supabase Row Level Security (RLS) complete.** Phases 1–4 of the backend are implemented. Authentication (Phase 5) and Project/User APIs (Phase 6) are coming in subsequent phases.
-
----
-
-## Backend — Phase 4 — Supabase Row Level Security (RLS)
-
-### Technology Stack
-
-| Layer | Technology |
-|---|---|
-| Language | Python 3.13+ |
-| Framework | FastAPI |
-| Server | Uvicorn |
-| Validation | Pydantic v2 |
-| Config | pydantic-settings |
-| Testing | pytest + pytest-asyncio + HTTPX |
-| Linting | Ruff |
+> **Current Status**: Phase 1–9 backend foundation complete. AI Orchestration (Phase 10+) upcoming.
 
 ---
 
-### Prerequisites
+# 1. Overview
 
-- Python 3.13 or higher
-- `pip` (bundled with Python)
+## What is DEVDOC?
+
+DEVDOC automates the end-to-end operational incident lifecycle through a secure, structured investigation pipeline:
+
+```
+Detect
+  ↓
+Investigate
+  ↓
+Gather Evidence
+  ↓
+Reason
+  ↓
+Diagnose
+  ↓
+Generate Fix
+  ↓
+Verify in Sandbox
+  ↓
+Human Approval
+  ↓
+Resolve
+```
+
+* **Implemented Today (Phases 1–9)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, and the investigation API contract.
+* **Planned (Phase 10+)**: Autonomous AI agent orchestration, multi-modal evidence collection, Nemotron/Nebius LLM reasoning, Tavily web search, automated root cause synthesis, sandbox fix verification, and interactive human-in-the-loop approval gates.
+
+## Why DEVDOC?
+
+* **Fragmented Operational Context**: Logs, metrics, stack traces, and GitHub commit history are scattered across disparate tools, slowing down triage during critical outages.
+* **Cognitive Overload Under Fire**: Engineers manually piece together timeline events under severe time pressure, leading to diagnostic errors and extended downtime.
+* **Context Blindness**: Traditional observability dashboards display alerts but lack direct awareness of repository code, recent pull requests, or CI/CD workflow failures.
+* **Unsafe Automation**: Blind automated remediation risks catastrophic secondary outages without isolated sandbox verification and explicit human approval.
 
 ---
 
-### Setup
+# 2. Architecture
 
-#### 1. Create and activate a virtual environment
-
-```bash
-# From the repository root
-cd backend
-python -m venv .venv
-
-# Windows (PowerShell)
-.venv\Scripts\Activate.ps1
-
-# macOS / Linux
-source .venv/bin/activate
-```
-
-#### 2. Copy the environment file
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` if you need to change any defaults. **Never commit `.env`.**
-
-#### 3. Install runtime dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-#### 4. Install development dependencies
-
-```bash
-pip install -r requirements-dev.txt
-```
-
----
-
-### Running the API
-
-```bash
-cd backend
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-The server starts at: `http://localhost:8000`
-
----
-
-### Health Endpoint
+The high-level DEVDOC platform architecture enforces strict separation between API handling, database persistence, and future autonomous AI orchestration:
 
 ```
-GET http://localhost:8000/api/v1/health
-```
-
-Expected response:
-
-```json
-{
-    "success": true,
-    "service": "DEVDOC",
-    "status": "healthy"
-}
-```
-
----
-
-### API Documentation
-
-| URL | Description |
-|---|---|
-| `http://localhost:8000/docs` | Interactive Swagger UI |
-| `http://localhost:8000/redoc` | ReDoc documentation |
-| `http://localhost:8000/openapi.json` | Raw OpenAPI schema |
-
----
-
-### Running Tests
-
-```bash
-cd backend
-pytest
-```
-
-Run with verbose output:
-
-```bash
-pytest -v
+               User / Web Frontend
+                       │
+                       ▼
+               FastAPI REST API
+                       │
+       ┌───────────────┴───────────────┐
+       ▼                               ▼
+Authentication & JWT            Authoritative Project
+  (Supabase Auth)                 & Incident Guard
+       │                               │
+       └───────────────┬───────────────┘
+                       ▼
+            Investigation REST API
+                       │
+                       ▼
+         PostgreSQL + Row Level Security (RLS)
+                       │
+   ════════════════════╪═══════════════════════════════════════════
+                       │ [Phase 10+ Integration Boundary]
+                       ▼
+              DEVDOC Orchestrator          [Phase 10 — Next]
+                       │
+       ┌───────────────┼───────────────┐
+       ▼               ▼               ▼
+  GitHub Agent   Docker Agent   Telemetry Agent  [Phase 11 — Planned]
+       │               │               │
+       └───────────────┬───────────────┘
+                       ▼
+                Evidence Engine            [Phase 12 — Planned]
+                       │
+                       ▼
+         NVIDIA Nemotron via Nebius        [Phase 13 — Planned]
+                       │
+                       ▼
+            Tavily Knowledge Search        [Phase 14 — Planned]
+                       │
+                       ▼
+               Root Cause Engine           [Phase 15 — Planned]
+                       │
+                       ▼
+                 Fix Generator             [Phase 16 — Planned]
+                       │
+                       ▼
+             Sandbox Verification          [Phase 17 — Planned]
+                       │
+                       ▼
+             Human Approval Gate           [Phase 18 — Planned]
+                       │
+                       ▼
+             Production Resolution         [Phase 18 — Planned]
 ```
 
 ---
 
-### Linting with Ruff
+# 3. Technology Stack
 
-Check for lint errors:
+### Current Implementation (Phases 1–9)
 
-```bash
-cd backend
-ruff check .
+| Layer | Technology | Purpose |
+|---|---|---|
+| Language | Python 3.13+ | Modern backend runtime |
+| API Framework | FastAPI | High-performance asynchronous REST endpoints |
+| ASGI Server | Uvicorn | Asynchronous HTTP server |
+| Request/Response Validation | Pydantic v2 | Strict schema validation with `extra="forbid"` |
+| Settings & Config | pydantic-settings | Type-safe environment variable management |
+| ORM & Queries | SQLAlchemy 2.0 (Async) | Asynchronous PostgreSQL persistence layer |
+| Database & Auth | PostgreSQL 16 / Supabase | Relational store with Row Level Security (RLS) |
+| Database Migrations | Alembic | Version-controlled database schema migrations |
+| Testing | pytest + pytest-asyncio + HTTPX | Asynchronous unit, integration, and security test suite |
+| Code Quality & Linting | Ruff | High-performance static analysis and formatting |
+| Containerization | Docker | Reproducible containerized runtimes |
+
+### Planned Future Technologies (Phases 10+)
+
+| Component | Planned Technology | Target Phase |
+|---|---|---|
+| AI Reasoning Model | NVIDIA Nemotron 70B via Nebius Token API | Phase 13 |
+| Knowledge Search | Tavily API | Phase 14 |
+| Agent Orchestration | DEVDOC Custom Orchestrator Package | Phase 10 |
+| Sandbox Execution | Isolated Docker / MicroVM Environments | Phase 17 |
+| Real-Time Observability | OpenTelemetry + Prometheus / Grafana | Phase 21 |
+
+---
+
+# 4. Project Status / Roadmap
+
+DEVDOC is being delivered across 26 systematic development phases. Phases 1 through 9 establish the complete production-grade backend and data foundation.
+
+| Phase | Status | Title | Description |
+|:---:|:---:|---|---|
+| 1 | ✅ Complete | Backend Foundation | FastAPI application structure, configuration, health endpoints, logging |
+| 2 | ✅ Complete | Supabase Database Foundation | PostgreSQL connection pooling, async engine, base schema |
+| 3 | ✅ Complete | Database Models & Relationships | Full relational schema for Users, Projects, Repositories, Incidents, Investigations |
+| 4 | ✅ Complete | Supabase Row Level Security | PostgreSQL RLS policies, `has_project_access` security functions |
+| 5 | ✅ Complete | Authentication & Authorization | Supabase JWT verification, session claim propagation, profile sync |
+| 6 | ✅ Complete | User & Project REST APIs | User profile endpoints, project CRUD, anti-spoofing ownership boundaries |
+| 7 | ✅ Complete | GitHub Integration | GitHub OAuth, signed CSRF state, repository attachment, code/commit/PR inspection |
+| 8 | ✅ Complete | Incident Management | Operational incident model, controlled 5-state lifecycle, bounded pagination |
+| 9 | ✅ Complete | Investigation API | Investigation data contract, finite state machine, dual boundary validation |
+| 10 | 🔵 Next | DEVDOC Orchestrator | Autonomous agent orchestrator package, workflow coordination |
+| 11 | ⏳ Planned | Investigation Agents | Specialized GitHub, Docker, and Monitoring inspection agents |
+| 12 | ⏳ Planned | Evidence Engine | Structured evidence collection, normalization, and timeline assembly |
+| 13 | ⏳ Planned | NVIDIA Nemotron + Nebius | LLM client integration, budget guardrails, token/cost optimization |
+| 14 | ⏳ Planned | Knowledge Search / Tavily | External documentation, CVE, and error solution retrieval |
+| 15 | ⏳ Planned | Root Cause Engine | Causal analysis, diagnostic synthesis, hypothesis ranking |
+| 16 | ⏳ Planned | Fix Generator | Automated patch generation, configuration remediation diffs |
+| 17 | ⏳ Planned | Sandbox Verification | Isolated container execution, test validation of proposed fixes |
+| 18 | ⏳ Planned | Human Approval & Audit | Interactive approval workflow, immutable audit trail, resolution |
+| 19 | ⏳ Planned | Security Hardening | Rate limiting, header security, advanced secret sanitization |
+| 20 | ⏳ Planned | API Rate Limiting | Tenant-based request quotas, burst protection |
+| 21 | ⏳ Planned | Observability | Prometheus metrics, OpenTelemetry distributed tracing |
+| 22 | ⏳ Planned | Load Testing | Locust stress testing, database concurrency validation |
+| 23 | ⏳ Planned | Docker & CI/CD | Production multi-stage Docker builds, GitHub Actions CI/CD |
+| 24 | ⏳ Planned | Production Architecture | Multi-region deployment, read replicas, caching tier |
+| 25 | ⏳ Planned | Complete Backend Evaluation | Comprehensive end-to-end evaluation and verification suite |
+| 26 | ⏳ Planned | Complete Documentation | Final architecture manuals, API specifications, operator runbooks |
+
+---
+
+# 5. Repository Structure
+
 ```
-
-Auto-fix safe issues:
-
-```bash
-ruff check . --fix
+devdoc/
+├── backend/
+│   ├── .dockerignore
+│   ├── .env.example              # Template environment configuration
+│   ├── Dockerfile                # Production container definition
+│   ├── alembic.ini               # Alembic migration configuration
+│   ├── pyproject.toml            # Project tool configs (ruff, pytest)
+│   ├── requirements.txt          # Production dependencies
+│   ├── requirements-dev.txt      # Development & testing dependencies
+│   ├── app/
+│   │   ├── main.py               # FastAPI entry point & exception handlers
+│   │   ├── dependencies.py       # Auth & project authorization dependencies
+│   │   ├── api/
+│   │   │   ├── router.py         # Main API router aggregator
+│   │   │   └── v1/
+│   │   │       ├── auth.py       # Profile synchronization (/api/v1/auth)
+│   │   │       ├── github.py     # GitHub OAuth & inspection (/api/v1/github)
+│   │   │       ├── health.py     # Liveness probe (/api/v1/health)
+│   │   │       ├── incidents.py  # Incident management (/api/v1/projects/.../incidents)
+│   │   │       ├── investigations.py # Investigation API (/api/v1/.../investigations)
+│   │   │       ├── projects.py   # Project management (/api/v1/projects)
+│   │   │       ├── ready.py      # Readiness probe (/api/v1/ready)
+│   │   │       ├── router.py     # V1 router registration
+│   │   │       └── users.py      # User profile management (/api/v1/users)
+│   │   ├── core/
+│   │   │   ├── config.py         # Type-safe pydantic-settings configuration
+│   │   │   ├── exceptions.py     # Standardized JSON error response handlers
+│   │   │   ├── logging.py        # Structured audit logger
+│   │   │   └── security.py       # JWT verification & cryptographic helpers
+│   │   ├── db/
+│   │   │   ├── base.py           # SQLAlchemy declarative Base & timestamp mixins
+│   │   │   ├── session.py        # Async engine & sessionmaker factories
+│   │   │   └── migrations/
+│   │   │       ├── env.py        # Alembic runtime environment
+│   │   │       └── versions/     # Versioned migration scripts (0001–0005)
+│   │   ├── models/               # SQLAlchemy ORM models
+│   │   │   ├── approval.py
+│   │   │   ├── audit_log.py
+│   │   │   ├── deployment.py
+│   │   │   ├── evidence.py
+│   │   │   ├── fix_proposal.py
+│   │   │   ├── github_connection.py
+│   │   │   ├── incident.py
+│   │   │   ├── investigation.py
+│   │   │   ├── project.py
+│   │   │   ├── repository.py
+│   │   │   └── user.py
+│   │   ├── schemas/              # Pydantic request & response schemas
+│   │   │   ├── auth.py
+│   │   │   ├── github.py
+│   │   │   ├── health.py
+│   │   │   ├── incident.py
+│   │   │   ├── investigation.py
+│   │   │   ├── project.py
+│   │   │   ├── ready.py
+│   │   │   └── user.py
+│   │   └── services/             # Business logic layer
+│   │       ├── auth.py
+│   │       ├── github.py
+│   │       ├── incident.py
+│   │       ├── investigation.py
+│   │       ├── project.py
+│   │       └── user.py
+│   └── tests/                    # Comprehensive test suite (Phases 1–9)
+├── frontend/                     # [Planned] React/Vite web application
+├── orchestrator/                 # [Phase 10 — Next] AI agent orchestrator package
+├── infra/                        # [Planned] Terraform & cloud infrastructure
+└── README.md                     # Project documentation
 ```
 
 ---
 
-### Docker
+# 6. Backend Architecture
 
-Build the image:
+DEVDOC adheres to strict architectural layering:
 
-```bash
-cd backend
-docker build -t devdoc-backend:phase1 .
+```
+HTTP Request
+     │
+     ▼
+API Layer (`app/api/v1/`)
+     │  - Thin route handlers
+     │  - URL parameter extraction & response serialization
+     ▼
+Security Dependencies (`app/dependencies.py`)
+     │  - Supabase JWT cryptographic signature verification
+     │  - Active user identity verification (`require_active_user`)
+     │  - Project ownership enforcement (`require_project_access`)
+     │  - Session claims propagation (`get_authenticated_db`)
+     ▼
+Service Layer (`app/services/`)
+     │  - Pure business logic, invariants & state machine validation
+     │  - Active run concurrency checks, boundary consistency
+     │  - Structured audit logging
+     ▼
+Database Layer (`app/models/`, `app/db/`)
+     │  - Async SQLAlchemy ORM sessions
+     │  - Connection pooling with automatic claim reset
+     ▼
+PostgreSQL Engine with Supabase RLS
+        - Database-level row isolation via `public.has_project_access(project_id)`
 ```
 
-Run the container:
-
-```bash
-docker run -p 8000:8000 devdoc-backend:phase1
-```
+### Architectural Principles
+* **Thin API Handlers**: Routers do not contain SQL queries or complex business logic. They delegate directly to the service layer.
+* **Autonomous Orchestrator Separation**: AI agent orchestration will reside in `orchestrator/`, completely decoupled from REST request-response cycles.
+* **Non-Bypassable RLS**: All queries pass through `get_authenticated_db`, ensuring PostgreSQL policies enforce boundaries even in the event of an application defect.
 
 ---
 
+# 7. Security Architecture
+
+### Authentication
+* **Supabase JWT Integration**: Authenticated endpoints validate bearer tokens using `app.core.security.verify_supabase_jwt`.
+* **Mandatory Signature Verification**: HMAC (HS256) and asymmetric JWKS public keys are verified strictly. Unsigned tokens or mismatched issuers/audiences are immediately rejected with HTTP 401.
+* **UUID-Anchored Consistency**: Users are mapped strictly by the JWT `sub` claim matching `public.users.id`. Mutable identifiers (e.g., email) are never used as primary keys.
+
+### Authorization
+* **Project Boundary**: `require_project_access` verifies the authenticated user owns the target project (or is an active superuser). Non-owners receive HTTP 403 Forbidden.
+* **Active Status Guard**: Deactivated users (`is_active = False`) are blocked from all endpoints by `require_active_user` with HTTP 403 Forbidden.
+
+### PostgreSQL Row Level Security (RLS)
+* **Session Context Injection**: `get_authenticated_db` executes `SET LOCAL request.jwt.claim.sub = :uid` within the request transaction.
+* **Database-Enforced Policy**: Tables (`projects`, `incidents`, `investigations`, `repositories`, `user_github_connections`, `audit_logs`) enforce RLS policies via `public.has_project_access(project_id)`.
+* **Zero Cross-User Leaks**: User A cannot read, insert, update, or delete User B's rows at the database engine level.
+
+### Anti-Spoofing & Immutability
+* **Authoritative URL Routing**: Resource ownership is determined by path parameters (`/projects/{project_id}/...`). Body-level `project_id` or `incident_id` injection is rejected.
+* **Strict Schema Validation**: All write schemas use Pydantic `extra="forbid"`. Attempting to supply `id`, `project_id`, `created_at`, or `updated_at` returns HTTP 422 Unprocessable Entity.
+* **Hierarchical Boundary Validation**: Every investigation request verifies that `incident_id` belongs to `project_id`, and that `investigation_id` belongs to `incident_id`.
+
+### Secret Sanitization & Audit Logging
+* **Zero Credential Exposure**: JWTs, GitHub access tokens, and OAuth secrets are never logged or returned in API responses.
+* **Structured Audit Metadata**: Audit logs record timestamps, actor IDs, project IDs, incident IDs, investigation IDs, and status transition outcomes.
+
 ---
 
-### Database & Row Level Security (RLS) — Phase 4
+# 8. Database & Migrations
 
-Phase 4 implements defense-in-depth authorization directly inside PostgreSQL via Supabase Row Level Security (RLS). Database-level constraints ensure that authenticated users cannot access, modify, or inject records into projects they do not own.
+Database migrations are managed using Alembic. Historical migrations remain immutable:
 
-#### Protected Tables (10 Tables)
+| Migration | Revision | Description |
+|---|---|---|
+| `0001_initial_schema.py` | `0001_initial_schema` | Core schema: users, projects, repositories, incidents, investigations, evidence, fix proposals, approvals, audit logs |
+| `0002_row_level_security.py` | `0002_row_level_security` | PostgreSQL Row Level Security policies, helper functions (`has_project_access`), table locks |
+| `0003_github_connections.py` | `0003_github_connections` | GitHub OAuth connection table (`user_github_connections`) with RLS |
+| `0004_incident_management.py` | `0004_incident_management` | Incident `source` enum, `detected_at` timestamps, composite query indexes |
+| `0005_investigation_api.py` | `0005_investigation_api` | Investigation `summary`, `started_at` timestamps, query indexes; cleans speculative AI fields |
 
-| Table | RLS Enabled | SELECT | INSERT | UPDATE | DELETE | Authorization Basis |
-|---|:---:|:---:|:---:|:---:|:---:|---|
-| `users` | Yes | Own | Own | Own | Own | `id = auth.uid()` |
-| `projects` | Yes | Owner | Owner | Owner | Owner | `owner_id = auth.uid()` |
-| `repositories` | Yes | Owner | Owner | Owner | Owner | `has_project_access(project_id)` |
-| `incidents` | Yes | Owner | Owner | Owner | Owner | `has_project_access(project_id)` |
-| `investigations` | Yes | Owner | Owner | Owner | Owner | `has_project_access(project_id)` |
-| `evidence` | Yes | Owner | Owner | Owner | Owner | `investigation -> project owner` |
-| `deployments` | Yes | Owner | Owner | Owner | Owner | `has_project_access(project_id)` |
-| `fix_proposals` | Yes | Owner | Owner | Owner | Owner | `investigation -> project owner` |
-| `approvals` | Yes | Owner | Approver+Owner | Approver+Owner | Approver+Owner | `fix_proposal -> project owner & approver_id = auth.uid()` |
-| `audit_logs` | Yes | Scoped | Scoped | ❌ Denied | ❌ Denied | `project owner / actor_id = auth.uid()` (Append-only) |
-
-#### Running Migrations
+### Running Migrations
 
 ```bash
-cd backend
-
-# View pending or executed migrations
-alembic history
-alembic heads
-
-# Apply migrations up to head (0002_row_level_security)
+# Apply all migrations to latest head
 alembic upgrade head
 
-# Revert RLS migration
+# Roll back the most recent migration
 alembic downgrade -1
-```
 
-#### Running RLS Security Tests
-
-```bash
-cd backend
-
-# Run full test suite (Phase 1–3 + Phase 4 RLS security tests)
-pytest -v
-
-# Run RLS security tests specifically
-pytest tests/test_rls_security.py -v
-```
-
-#### Security Model & Service-Role Considerations
-
-* **User Identity**: Identity is anchored on Supabase's `auth.uid()`, matching the `User.id` UUID primary key.
-* **Defense in Depth**: Even if application-level checks fail or are bypassed, PostgreSQL RLS rejects cross-tenant reads, writes, updates, and deletes.
-* **Service-Role Key**: The `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS and is restricted exclusively to trusted backend worker operations (system audit logs, system-triggered background analysis). **It is never exposed to clients, frontends, or logged.**
-* **Append-Only Immutability**: `audit_logs` has no UPDATE or DELETE policies for the `authenticated` role, preventing tampering with history.
-* **Future Project Membership**: The `public.has_project_access(p_project_id)` `SECURITY DEFINER` function encapsulates project authorization. When team/collaborator membership tables are introduced in future phases, updating this function extends authorization platform-wide without altering table policies.
-
-#### Phase Dependencies
-* **Phase 5 (Authentication)** must provide valid user JWTs with `sub = user.id` claim for client sessions.
-* **Phase 6 (User & Project APIs)** must enforce application-level authorization in FastAPI while relying on database RLS as an additional security boundary.
-
----
-
-### Project Structure
-
-```
-backend/
-├── app/
-│   ├── api/
-│   │   ├── router.py          # Root API router
-│   │   └── v1/
-│   │       ├── router.py      # v1 router
-│   │       ├── health.py      # GET /api/v1/health
-│   │       └── ready.py       # GET /api/v1/ready (DB readiness probe)
-│   ├── core/
-│   │   ├── config.py          # pydantic-settings configuration
-│   │   ├── logging.py         # Centralized logging setup
-│   │   └── exceptions.py      # Error handlers
-│   ├── db/
-│   │   ├── base.py            # Base, UUIDMixin, TimestampMixin
-│   │   ├── session.py         # Async engine & sessionmaker
-│   │   └── migrations/        # Alembic migrations
-│   │       ├── env.py         # Custom migration runner (sync + asyncpg)
-│   │       └── versions/
-│   │           ├── 0001_initial_schema.py      # Phase 3 initial schema
-│   │           └── 0002_row_level_security.py  # Phase 4 Supabase RLS
-│   ├── models/                # 10 core domain models
-│   ├── schemas/
-│   │   ├── auth.py            # Phase 5 auth payload & sync schemas
-│   │   ├── health.py
-│   │   ├── project.py         # Phase 6 project request/response schemas
-│   │   ├── ready.py
-│   │   └── user.py            # Phase 5 & 6 user profile schemas
-│   └── services/
-│       ├── auth.py            # Phase 5 profile sync & provisioning
-│       ├── project.py         # Phase 6 project CRUD & validation
-│       └── user.py            # Phase 6 user profile management
-├── tests/
-│   ├── conftest.py
-│   ├── test_health.py
-│   ├── test_database.py
-│   ├── test_models_phase3.py
-│   ├── test_rls_security.py   # Phase 4 RLS security test suite
-│   ├── test_auth_phase5.py    # Phase 5 Authentication & authorization test suite
-│   └── test_phase6_apis.py    # Phase 6 User & Project REST APIs test suite
-├── requirements.txt
-├── requirements-dev.txt
-├── pyproject.toml             # pytest + Ruff config
-├── Dockerfile
-├── .dockerignore
-└── .env.example
+# Re-apply migrations
+alembic upgrade head
 ```
 
 ---
 
-### Phase Roadmap
+# 9. API Overview
 
-| Phase | Status | Description |
-|---|---|---|
-| Phase 1 | ✅ **Complete** | FastAPI foundation, health endpoint, config, logging, error handling, tests |
-| Phase 2 | ✅ **Complete** | Database foundation — Supabase, PostgreSQL, SQLAlchemy async engine, session |
-| Phase 3 | ✅ **Complete** | Database models & relationships (10 core models, constraints, enums) |
-| Phase 4 | ✅ **Complete** | Supabase Row Level Security (RLS) — policies, ownership, isolation |
-| Phase 5 | ✅ **Complete** | Authentication & Authorization — Supabase JWT verification, session propagation, profile sync, project auth |
-| Phase 6 | ✅ **Complete** | User & Project APIs — REST endpoints for user profile and project management, ownership enforcement |
-| Phase 7 | 🔜 Planned | GitHub integration |
-| Phase 8 | 🔜 Planned | AI Agent — NVIDIA Nemotron via Nebius |
-| Phase 9 | 🔜 Planned | Root cause engine, fix generator, sandbox |
-| Phase 10 | 🔜 Planned | Observability — metrics, tracing |
+All API endpoints are versioned under `/api/v1`:
 
----
-
-### Phase 5 — Authentication & Authorization Architecture
-
-#### 1. Identity & Authorization Flow
-```text
-Client
-   ↓ (Bearer <Supabase-JWT>)
-FastAPI Request
-   ↓ (app.core.security.extract_bearer_token)
-Bearer Token Extraction
-   ↓ (app.core.security.verify_and_decode_jwt)
-Cryptographic Signature & Claim Verification (sub, exp, aud, iss)
-   ↓ (app.dependencies.get_current_user)
-Authoritative User Profile (public.users matched by UUID)
-   ↓ (app.dependencies.require_project_access)
-Application-Level Project Guard (project.owner_id == current_user.id)
-   ↓ (app.dependencies.get_authenticated_db)
-PostgreSQL Session Context (SET LOCAL request.jwt.claim.sub = <UUID>)
-   ↓
-Supabase RLS Boundary (auth.uid() = User ID & public.has_project_access)
-   ↓
-Authorized Domain Rows Only
-```
-
-#### 2. Key Design & Security Guarantees
-* **Strict Cryptographic Signature Verification**: Signature verification is mandatory; `verify_signature=False` is strictly forbidden. Supports HMAC (HS256) secrets as well as asymmetric JWKS keys with key rotation.
-* **UUID-Anchored Consistency**: The Supabase `auth.users.id` exactly matches `public.users.id` and the JWT `sub` claim. Users are never mapped by mutable fields like email.
-* **Impersonation Prevention**: User profile provisioning (`POST /api/v1/auth/sync`) sources the profile UUID strictly from the verified JWT `sub` claim. Arbitrary IDs in request payloads or query parameters are ignored.
-* **Connection Pool Isolation**: Database session identity is propagated via `SET LOCAL request.jwt.claim.sub = :uid` within the request transaction, accompanied by defensive `RESET request.jwt.claim.sub` in cleanup to prevent identity leakage across pooled connections.
-* **Defense-in-Depth**: Application-level authorization (`require_project_access`) prevents unauthorized processing before hitting the database, while PostgreSQL RLS (`auth.uid()`, `public.has_project_access()`) provides the ultimate database boundary.
-* **Token Logging Protection**: Authorization headers and raw JWTs are never logged. Only structured, non-sensitive audit metadata (UUIDs, event types, error classes) is recorded.
-
-#### 3. Authentication Environment Configuration
-Add to `.env`:
-```bash
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_JWT_SECRET=your-supabase-jwt-secret-minimum-32-chars
-SUPABASE_JWT_ALGORITHM=HS256
-SUPABASE_JWT_AUDIENCE=authenticated
-SUPABASE_JWT_ISSUER=https://your-project.supabase.co/auth/v1
-```
-
-#### 4. Running Phase 5 Tests
-```bash
-cd backend
-python -m pytest tests/test_auth_phase5.py -v
-```
+| Domain | Method | Endpoint | Description | Auth Required |
+|---|---|---|---|---|
+| **Health** | `GET` | `/api/v1/health` | Liveness health check | Public |
+| **Health** | `GET` | `/api/v1/ready` | Database readiness check | Public |
+| **Auth** | `POST` | `/api/v1/auth/sync` | Provision or synchronize user profile from JWT | Bearer JWT |
+| **Users** | `GET` | `/api/v1/users/me` | Retrieve authenticated user profile | Bearer JWT |
+| **Users** | `PATCH` | `/api/v1/users/me` | Update mutable user profile fields | Bearer JWT |
+| **Users** | `DELETE` | `/api/v1/users/me` | Deactivate account (soft delete) | Bearer JWT |
+| **Projects** | `POST` | `/api/v1/projects` | Create a new project | Bearer JWT |
+| **Projects** | `GET` | `/api/v1/projects` | List projects owned by authenticated user | Bearer JWT |
+| **Projects** | `GET` | `/api/v1/projects/{project_id}` | Retrieve project by ID | Bearer JWT + Owner |
+| **Projects** | `PATCH` | `/api/v1/projects/{project_id}` | Update project metadata | Bearer JWT + Owner |
+| **Projects** | `DELETE` | `/api/v1/projects/{project_id}` | Delete project (cascades resources) | Bearer JWT + Owner |
+| **GitHub** | `GET` | `/api/v1/github/connect` | Initiate OAuth flow with signed CSRF state | Bearer JWT |
+| **GitHub** | `GET` | `/api/v1/github/callback` | OAuth redirect callback | Public (State-bound) |
+| **GitHub** | `GET` | `/api/v1/github/connection` | Check connection status (tokens masked) | Bearer JWT |
+| **GitHub** | `DELETE` | `/api/v1/github/connection` | Disconnect GitHub account | Bearer JWT |
+| **GitHub** | `GET` | `/api/v1/github/repositories` | List accessible repositories | Bearer JWT |
+| **GitHub** | `POST` | `/api/v1/projects/{project_id}/github/repository` | Attach GitHub repo to project | Bearer JWT + Owner |
+| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/repository` | Get attached repository metadata | Bearer JWT + Owner |
+| **GitHub** | `DELETE` | `/api/v1/projects/{project_id}/github/repository` | Disconnect repository from project | Bearer JWT + Owner |
+| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/branches` | List repository branches | Bearer JWT + Owner |
+| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/commits` | List recent commits | Bearer JWT + Owner |
+| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/pulls` | List pull requests | Bearer JWT + Owner |
+| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/issues` | List repository issues | Bearer JWT + Owner |
+| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/contents` | Inspect file/directory contents | Bearer JWT + Owner |
+| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/workflows` | List GitHub Actions workflow runs | Bearer JWT + Owner |
+| **Incidents** | `POST` | `/api/v1/projects/{project_id}/incidents` | Create an incident | Bearer JWT + Owner |
+| **Incidents** | `GET` | `/api/v1/projects/{project_id}/incidents` | List project incidents (paginated/filtered) | Bearer JWT + Owner |
+| **Incidents** | `GET` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Retrieve incident details | Bearer JWT + Owner |
+| **Incidents** | `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Update mutable incident fields | Bearer JWT + Owner |
+| **Incidents** | `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}/status` | Dedicated lifecycle status transition | Bearer JWT + Owner |
+| **Incidents** | `DELETE` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Delete incident | Bearer JWT + Owner |
+| **Investigations** | `POST` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations` | Create an investigation | Bearer JWT + Owner |
+| **Investigations** | `GET` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations` | List investigations for incident | Bearer JWT + Owner |
+| **Investigations** | `GET` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations/{id}` | Retrieve investigation details | Bearer JWT + Owner |
+| **Investigations** | `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations/{id}` | Update mutable fields | Bearer JWT + Owner |
+| **Investigations** | `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations/{id}/status` | Transition lifecycle status | Bearer JWT + Owner |
+| **Investigations** | `DELETE` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations/{id}` | Delete investigation | Bearer JWT + Owner |
 
 ---
 
-### Phase 6 — User & Project REST APIs
+# 10. Implemented Backend Phases
 
-#### 1. Endpoints Overview
+### Phase 5 — Authentication & Authorization
+* Validates Supabase JWTs cryptographically; enforces user mapping to verified `sub` claims.
+* Provides authenticated database sessions via `get_authenticated_db` to propagate session context to PostgreSQL RLS.
 
-| Method | Endpoint | Description | Auth Required |
-|---|---|---|---|
-| `GET` | `/api/v1/users/me` | Retrieve profile of the authenticated user | Bearer JWT |
-| `PATCH` | `/api/v1/users/me` | Update mutable profile fields (`full_name`, `avatar_url`) | Bearer JWT |
-| `DELETE` | `/api/v1/users/me` | Deactivate account (soft deletion, immediate 403 on subsequent calls) | Bearer JWT |
-| `POST` | `/api/v1/projects` | Create a new project (auto-anchored to authenticated `owner_id`) | Bearer JWT |
-| `GET` | `/api/v1/projects` | List projects owned by the authenticated user (paginated) | Bearer JWT |
-| `GET` | `/api/v1/projects/{project_id}` | Retrieve project by ID (verifies ownership or superuser) | Bearer JWT |
-| `PATCH` | `/api/v1/projects/{project_id}` | Update project metadata and settings | Bearer JWT |
-| `DELETE` | `/api/v1/projects/{project_id}` | Delete project (cascades child domain resources) | Bearer JWT |
-
-#### 2. Security Safeguards
-* **Anti-Spoofing & Immutability**: All mutating endpoints forbid client-supplied ownership or primary identity fields (`id`, `owner_id`, `email`, `is_superuser`, etc.) using Pydantic `extra="forbid"`.
-* **Zero Impersonation**: `owner_id` is always set directly from `current_user.id` derived from the verified JWT `sub`.
-* **Cross-User Protection**: Non-owners attempting to access, update, or delete projects belonging to another user are denied with HTTP 403 Forbidden.
-* **Lifecycle Enforcement**: Deactivated users (`is_active = False`) are blocked from all endpoints by `require_active_user` with HTTP 403 Forbidden.
-
-#### 3. Running Phase 6 Tests
-```bash
-cd backend
-python -m pytest tests/test_phase6_apis.py -v
-```
-
----
+### Phase 6 — User & Project APIs
+* Implements profile management (`/users/me`) and project CRUD (`/projects`).
+* Prevents spoofing via `extra="forbid"`, automatically anchors `owner_id`, and cascades deletion to child resources.
 
 ### Phase 7 — GitHub Integration
+* Implements secure GitHub OAuth connection with signed HMAC CSRF state.
+* Provides project repository attachment and inspection endpoints (branches, commits, PRs, issues, files, workflows).
+* Enforces strict credential masking (access tokens are never logged or returned in responses).
 
-#### 1. Integration Architecture
+### Phase 8 — Incident Management
+* Implements operational incident lifecycle: `OPEN` → `INVESTIGATING` → `MITIGATED` → `RESOLVED` → `CLOSED`.
+* Provides bounded pagination (max 100), deterministic sorting (`created_at DESC`), and filtering by status, severity, and source.
 
-```
-User (Browser)
-   ↓ 1. Initiate OAuth
-GET /api/v1/github/connect
-   ↓ 2. Redirect to GitHub with signed CSRF state
-https://github.com/login/oauth/authorize?client_id=...&state=...
-   ↓ 3. User authorizes, GitHub redirects back
-GET /api/v1/github/callback?code=...&state=...
-   ↓ 4. Exchange code for access token (POST https://github.com/login/oauth/access_token)
-   ↓ 5. Fetch GitHub profile (GET https://api.github.com/user)
-   ↓ 6. Persist UserGitHubConnection (RLS: user_id = auth.uid())
-Safe Response (connected=True, username=octocat; tokens NEVER returned)
-   ↓
-Project Repository Association
-POST /api/v1/projects/{project_id}/github/repository
-   ↓ (verifies DEVDOC project ownership + verifies repo access on GitHub via GitHubAPIClient)
-Persist Repository attached to Project
-   ↓
-Future Investigation Pipeline
-GitHubAPIClient (Inspection of branches, commits, PRs, issues, files, workflow runs)
-```
-
-#### 2. Endpoints Overview
-
-| Method | Endpoint | Description | Auth Required |
-|---|---|---|---|
-| `GET` | `/api/v1/github/connect` | Initiates GitHub OAuth; returns authorization URL with signed CSRF state | Bearer JWT |
-| `GET` | `/api/v1/github/callback` | OAuth callback; validates CSRF state, exchanges code, and stores credentials | None (state-bound) |
-| `GET` | `/api/v1/github/connection` | Returns safe connection status for the authenticated user (no tokens) | Bearer JWT |
-| `DELETE` | `/api/v1/github/connection` | Disconnects and removes stored GitHub integration credentials | Bearer JWT |
-| `GET` | `/api/v1/github/repositories` | Lists repositories accessible to the user's connected GitHub account (paginated) | Bearer JWT |
-| `POST` | `/api/v1/projects/{project_id}/github/repository` | Associates an authorized GitHub repository with a DEVDOC project | Bearer JWT + Project Access |
-| `GET` | `/api/v1/projects/{project_id}/github/repository` | Retrieves the project's connected GitHub repository | Bearer JWT + Project Access |
-| `DELETE` | `/api/v1/projects/{project_id}/github/repository` | Disconnects the GitHub repository from the project | Bearer JWT + Project Access |
-| `GET` | `/api/v1/projects/{project_id}/github/branches` | Lists branches of the connected GitHub repository | Bearer JWT + Project Access |
-| `GET` | `/api/v1/projects/{project_id}/github/commits` | Lists commits of the connected GitHub repository | Bearer JWT + Project Access |
-| `GET` | `/api/v1/projects/{project_id}/github/pulls` | Lists pull requests of the connected GitHub repository | Bearer JWT + Project Access |
-| `GET` | `/api/v1/projects/{project_id}/github/issues` | Lists issues of the connected GitHub repository | Bearer JWT + Project Access |
-| `GET` | `/api/v1/projects/{project_id}/github/contents` | Retrieves file contents / directory metadata for investigation | Bearer JWT + Project Access |
-| `GET` | `/api/v1/projects/{project_id}/github/workflows` | Lists GitHub Actions workflow runs for the connected repository | Bearer JWT + Project Access |
-
-#### 3. Security & Safety Controls
-* **Zero Credential Exposure**: GitHub `access_token` and client secrets are **never** returned in API responses, error details, or application logs.
-* **Cryptographic CSRF Prevention**: OAuth states are cryptographically signed HMAC tokens containing `sub` (DEVDOC user ID), timestamp expiry, and random nonces. Mismatches or expired states are rejected with HTTP 400/403.
-* **Row Level Security (RLS)**: Stored credentials in `user_github_connections` are protected by PostgreSQL RLS (`user_id = auth.uid()`). User A cannot view, modify, or delete User B's GitHub connection.
-* **Project Ownership Verification**: Every project-scoped repository endpoint enforces `require_project_access` (owner or superuser). User A cannot associate repositories with or read repositories from User B's project.
-* **Remote Permission Verification**: When attaching a repository, DEVDOC verifies against the GitHub API that the repository exists and the authenticated user actually has access.
-* **Anti-SSRF & Input Validation**: No arbitrary proxy endpoints (`/github/proxy`). All GitHub API requests are routed strictly through the typed `GitHubAPIClient` with validated coordinates (`owner/repo`) and traversal protection.
-* **Rate-Limit & Upstream Error Translation**: GitHub upstream errors (401, 403, 404, 409, 422, 429, 5xx) and timeouts (HTTP 504) are translated into predictable application errors without exposing raw upstream responses.
-
-#### 4. Environment Configuration
-Add to `.env`:
-```bash
-# GitHub Integration
-GITHUB_CLIENT_ID="your-github-oauth-app-client-id"
-GITHUB_CLIENT_SECRET="your-github-oauth-app-client-secret"
-GITHUB_OAUTH_REDIRECT_URI="http://localhost:8000/api/v1/github/callback"
-GITHUB_API_BASE_URL="https://api.github.com"
-```
-
-#### 5. Running Phase 7 Tests
-```bash
-cd backend
-python -m pytest tests/test_phase7_github.py -v
-```
+### Phase 9 — Investigation API
+* Implements the investigation API data contract and finite state machine.
+* Enforces active-investigation concurrency limits (HTTP 409 if a run is already active).
+* Validates dual project and incident boundaries, tracks execution timestamps (`started_at`, `completed_at`), and prepares token/cost tracking for Phase 13.
 
 ---
 
-### Phase 8 — Incident Management
+# 11. Phase 7 — GitHub Integration
 
-#### 1. Incident Lifecycle & State Transitions
+Phase 7 connects DEVDOC to GitHub repositories for investigation context:
 
-DEVDOC provides a strictly controlled operational lifecycle for incidents:
+```
+User Browser ────► GET /api/v1/github/connect ────► Redirect to GitHub (Signed CSRF State)
+                                                           │
+User Authorizes ◄──────────────────────────────────────────┘
+      │
+      ▼
+GET /api/v1/github/callback?code=...&state=...
+      │  - Validates HMAC state signature & expiration
+      │  - Exchanges code for access token via GitHub API
+      │  - Persists UserGitHubConnection with PostgreSQL RLS
+      ▼
+Safe Response (Token masked, connected=True)
+      │
+      ▼
+POST /api/v1/projects/{project_id}/github/repository
+      │  - Verifies project ownership
+      │  - Verifies authenticated user has access to target repository
+      ▼
+Attached Repository ready for inspection (commits, PRs, workflows, contents)
+```
+
+* **Anti-SSRF & Input Validation**: All repository requests go through typed client methods with strict owner/repository format validation. Path traversal (`..`) in contents queries is rejected.
+* **Rate Limit Handling**: GitHub API rate limits (HTTP 429) and upstream errors are caught and transformed into structured application error responses.
+
+---
+
+# 12. Phase 8 — Incident Management
+
+### Incident Lifecycle State Machine
 
 ```
                   ┌──────────────┐
@@ -469,64 +467,303 @@ DEVDOC provides a strictly controlled operational lifecycle for incidents:
                   └──────────────┘
 ```
 
-##### Allowed Transitions
-* `OPEN` → `INVESTIGATING`
-* `INVESTIGATING` → `MITIGATED`, `OPEN`
-* `MITIGATED` → `RESOLVED`, `INVESTIGATING`
-* `RESOLVED` → `CLOSED`, `OPEN` (reopen)
-* `CLOSED` → Terminal state (no further transitions allowed)
-* Same-state updates (idempotent no-op) are permitted.
-* Arbitrary skips (e.g. `OPEN` → `CLOSED`) are strictly forbidden and return HTTP 422.
+* **Controlled Transitions**: Validated in `IncidentService.validate_status_transition`. Arbitrary jumps (e.g., `OPEN` → `CLOSED`) raise HTTP 422.
+* **Controlled Enums**:
+  * Severity: `low`, `medium`, `high`, `critical`, `info`
+  * Source: `manual`, `github`, `monitoring`, `webhook`, `system`
+* **Automated Bookkeeping**: `resolved_at` is automatically recorded when transitioning into `RESOLVED` or `CLOSED`, and cleared if reopened.
 
-#### 2. Endpoints Overview
+---
 
-Base route: `/api/v1/projects/{project_id}/incidents`
+# 13. Phase 9 — Investigation API
 
-| Method | Endpoint | Description | Auth Required |
-|---|---|---|---|
-| `POST` | `/api/v1/projects/{project_id}/incidents` | Create an incident (anchored to project in route; anti-spoofing) | Bearer JWT + Project Access |
-| `GET` | `/api/v1/projects/{project_id}/incidents` | List project incidents (paginated: `limit` max 100, `offset`, filterable by `status`, `severity`, `source`) | Bearer JWT + Project Access |
-| `GET` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Retrieve incident details | Bearer JWT + Project Access |
-| `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Update mutable fields (`title`, `description`, `severity`, `source`, `external_reference`) | Bearer JWT + Project Access |
-| `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}/status` | Dedicated lifecycle status transition endpoint | Bearer JWT + Project Access |
-| `DELETE` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Delete incident (returns 200 with deletion confirmation) | Bearer JWT + Project Access |
+Phase 9 establishes the investigation data contract and execution lifecycle.
 
-#### 3. Security, Authorization & RLS Architecture
-* **Project Boundary**: Every project incident endpoint is guarded by `require_project_access` (owner or superuser). Cross-user project access is rejected with HTTP 403 Forbidden.
-* **RLS Isolation**: Authenticated database sessions utilize `get_authenticated_db` to set `request.jwt.claim.sub`. PostgreSQL Row Level Security enforces `public.has_project_access(project_id)`, ensuring database-level data isolation.
-* **Anti-Spoofing & Immutability**: `project_id`, `id`, `created_at`, `updated_at`, and `resolved_at` are immutable and forbidden in request bodies (`extra="forbid"`).
-* **Automatic Lifecycle Bookkeeping**: `resolved_at` is automatically recorded when transitioning into `RESOLVED` and reset if reopened.
-* **Deterministic Ordering & Bounded Pagination**: Incidents are returned ordered by `created_at DESC`. `limit` is capped at a maximum of 100 to prevent denial-of-service / memory exhaustion.
+### Investigation Lifecycle State Machine
 
-#### 4. Running Phase 8 Tests
-```bash
-cd backend
-python -m pytest tests/test_phase8_incidents.py -v
+```
+                  ┌──────────────┐
+                  │   PENDING    │─────────────┐
+                  └──────┬───────┘             │
+                         │                     │ (Cancel)
+                         ▼                     │
+                  ┌──────────────┐             │
+                  │   RUNNING    │─────────────┤
+                  └──────┬───────┘             │
+                         │                     │
+                ┌────────┴────────┐            │
+                │                 │            ▼
+                ▼                 ▼     ┌──────────────┐
+         ┌──────────────┐  ┌──────────┐ │  CANCELLED   │
+         │  COMPLETED   │  │  FAILED  │ └──────────────┘
+         └──────────────┘  └──────────┘
+```
+
+* **Allowed Transitions**:
+  * `PENDING` → `RUNNING`, `CANCELLED`
+  * `RUNNING` → `COMPLETED`, `FAILED`, `CANCELLED`
+  * `COMPLETED`, `FAILED`, `CANCELLED` are terminal states (idempotent same-state updates allowed).
+  * Invalid transitions raise HTTP 422 Unprocessable Entity.
+* **Active-Investigation Concurrency Rule**: Only **one** active investigation (`PENDING` or `RUNNING`) can exist per incident at any time. Attempting to create a second concurrent active investigation returns HTTP 409 Conflict. Once completed, failed, or cancelled, subsequent investigations can be created.
+* **Timestamp & Lifecycle Tracking**:
+  * `started_at` is automatically populated when entering `RUNNING`.
+  * `completed_at` is automatically populated when entering `COMPLETED`, `FAILED`, or `CANCELLED`.
+  * `error_message` records failure reasons when transitioning to `FAILED`.
+* **Token & Cost Budgeting Foundation**:
+  * `tokens_used`: Integer tracking tokens consumed (defaults to `0`, non-negative constraint).
+  * `estimated_cost_usd`: Integer tracking cost in micro-USD (defaults to `0`, non-negative constraint).
+* **Architectural Boundaries**:
+  * Speculative AI/result fields (`root_cause_summary`, `confidence_score`) were intentionally excluded from Phase 9. AI diagnostic synthesis belongs to Phase 15.
+
+---
+
+# 14. Future AI Investigation Pipeline
+
+> **Status: Planned — Phase 10+**
+
+When triggered, an investigation will execute the autonomous AI pipeline:
+
+```
+Incident Detected
+       │
+       ▼
+Investigation Created (PENDING → RUNNING)
+       │
+       ▼
+DEVDOC Orchestrator [Phase 10]
+  Dispatches concurrent telemetry, GitHub, and container inspection agents
+       │
+       ▼
+Evidence Engine [Phase 12]
+  Collects logs, error traces, diffs, metrics snapshots, and workflow runs
+       │
+       ▼
+Tavily Knowledge Search [Phase 14]
+  Retrieves vendor documentation, known issue solutions, and CVE databases
+       │
+       ▼
+NVIDIA Nemotron 70B via Nebius [Phase 13]
+  Reasons over structured evidence, context timeline, and external knowledge
+       │
+       ▼
+Root Cause Engine [Phase 15]
+  Synthesizes root cause diagnosis with ranked hypotheses and confidence score
+       │
+       ▼
+Fix Generator [Phase 16]
+  Produces code patch diffs, config adjustments, or rollback commands
+       │
+       ▼
+Sandbox Verification [Phase 17]
+  Executes candidate fix in an isolated Docker container to verify test pass
+       │
+       ▼
+Human Approval Gate [Phase 18]
+  Interactive human-in-the-loop review of diagnosis, evidence, and proposed fix
+       │
+       ▼
+Production Resolution [Phase 18]
+  Fix applied via Pull Request or deployment rollback; incident marked RESOLVED
 ```
 
 ---
 
-### Team
+# 15. NVIDIA / Nebius Cost Control
 
-| Role | Owns |
-|---|---|
-| AI / Agent Engineer | orchestrator, agents, reasoning, evidence engine, root cause, fix generator, sandbox |
-| Backend / DevOps Engineer | backend, infra, database, security, CI/CD, integrations |
-| Frontend Engineer | frontend |
+> **Status: Planned — Phase 13**
+
+The Phase 13 AI integration will implement strict cost and token guardrails:
+* **Budget Guards**: Pre-run checks against project-level monthly token and expenditure quotas.
+* **Token Tracking**: Per-investigation recording of `tokens_used` and `estimated_cost_usd` in micro-USD ($0.000001 precision).
+* **Token Limits**: Hard caps on prompt context windows and max output tokens per model call.
+* **Prompt Caching**: Deduplication of static system instructions and unchanged repository context.
+* **Retry Limits & Circuit Breakers**: Bounded exponential backoff to avoid runaway billing on upstream model errors.
+* **Zero Client Exposure**: AI provider API keys remain exclusively on the server and are never exposed to the client.
 
 ---
 
-### Git Branching Strategy
+# 16. Local Development
 
-| Branch | Purpose |
-|---|---|
-| `prd` | Production — never push directly |
-| `dev` | Integration |
-| `feature/*` | Feature branches — PR into `dev` |
+### Prerequisites
+* Python 3.13 or higher
+* Docker (for local PostgreSQL / Supabase testing)
+* Git
 
-Current feature branch: `feature/phase8-incident-management`
+### Setup Instructions
 
+```bash
+# 1. Clone the repository
+git clone https://github.com/DEVDOC-Team/devdoc.git
+cd devdoc/backend
 
+# 2. Create and activate a Python virtual environment
+python -m venv .venv
 
+# Windows (PowerShell):
+.venv\Scripts\Activate.ps1
 
+# macOS / Linux:
+source .venv/bin/activate
 
+# 3. Install dependencies
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# 4. Configure environment variables
+cp .env.example .env
+# Edit .env with your local database credentials and Supabase JWT secret
+
+# 5. Run database migrations
+alembic upgrade head
+
+# 6. Start the development server
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+---
+
+# 17. Testing & Quality
+
+DEVDOC maintains an asynchronous test suite covering unit logic, REST endpoints, security boundaries, and PostgreSQL Row Level Security.
+
+### Running Tests
+
+```bash
+cd backend
+
+# Run the complete test suite
+python -m pytest -v
+
+# Run Phase 8 Incident tests
+python -m pytest tests/test_phase8_incidents.py -v
+
+# Run Phase 9 Investigation tests
+python -m pytest tests/test_phase9_investigations.py -v
+
+# Run static analysis and linting
+python -m ruff check .
+```
+
+> **Verification Snapshot (Phase 9 Completion)**:
+> * Full Test Suite: **208 passed, 1 skipped, 0 failed** (100% pass rate).
+> * Ruff Lint Check: **All checks passed!** (0 errors, 0 warnings).
+
+---
+
+# 18. Docker
+
+A containerized runtime is provided via `backend/Dockerfile` for local integration and testing:
+
+```bash
+# Build the backend container
+docker build -t devdoc-backend -f backend/Dockerfile backend/
+
+# Run an ephemeral PostgreSQL 16 container for testing
+docker run --name devdoc-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=devdoc_test \
+  -p 5433:5432 \
+  -d postgres:16-alpine
+```
+
+---
+
+# 19. Team & Ownership
+
+DEVDOC is built and maintained by a 5-member engineering team:
+
+| Member | Role | Primary Responsibilities |
+|---|---|---|
+| **Member 1** | Backend / API | FastAPI endpoints, routing, schemas, API versioning, business services |
+| **Member 2** | Database / Auth | PostgreSQL schema, SQLAlchemy models, Supabase RLS, JWT authentication |
+| **Member 3** | AI / Agent | Orchestrator package, evidence collection, Nemotron/Nebius reasoning, root cause engine |
+| **Member 4** | DevOps / Integrations / Sandbox | GitHub OAuth, containerization, Docker sandbox verification, CI/CD pipelines |
+| **Member 5** | Security / QA / Operations | Security audit, vulnerability review, load testing, telemetry, test coverage |
+
+---
+
+# 20. Git Workflow
+
+DEVDOC uses a structured Git branching strategy to guarantee stability:
+
+```
+prd  (Production releases)
+ ▲
+ │ Pull Request
+dev  (Integration & staging)
+ ▲
+ │ Pull Request
+features  (Approved phase integration baseline)
+ ▲
+ │ Pull Request
+feature/phase-X  (Scoped feature branches)
+```
+
+* `prd`: Production-ready code. Merges occur only from `dev` after full release validation.
+* `dev`: Active development integration. Merges occur from `features` after integration sign-off.
+* `features`: Approved phase integration baseline. Completed phase branches PR into `features`.
+* `feature/*`: Scoped branches for individual development phases (e.g., `feature/phase9-investigation-api`).
+
+---
+
+# 21. Development Rules
+
+1. **Strict Branch Scoping**: Each pull request must address exactly one development phase or feature. Unrelated modifications are prohibited.
+2. **Mandatory Quality Gates**: Every branch must pass `python -m ruff check .` and the complete `python -m pytest -v` regression suite before PR creation.
+3. **No Secret Commits**: Never commit `.env` files, API keys, private tokens, or credentials. Use `.env.example` placeholders.
+4. **Thin API Routing**: Business logic must reside in `app/services/`, not inside FastAPI route handlers.
+5. **Defense in Depth**: Always enforce authorization at the application layer (`dependencies.py`) and verify database-level isolation via PostgreSQL RLS.
+
+---
+
+# 22. Environment Variables
+
+Configure `.env` locally using `backend/.env.example` as a template:
+
+| Variable | Description | Example / Default |
+|---|---|---|
+| `ENVIRONMENT` | Deployment environment | `development`, `staging`, `production` |
+| `DATABASE_URL` | Async PostgreSQL connection string | `postgresql+asyncpg://postgres:postgres@localhost:5432/devdoc` |
+| `DIRECT_DATABASE_URL` | Direct connection for Alembic migrations | `postgresql+asyncpg://postgres:postgres@localhost:5432/devdoc` |
+| `SUPABASE_URL` | Supabase project URL | `https://your-project.supabase.co` |
+| `SUPABASE_JWT_SECRET` | Secret key for JWT verification | `minimum-32-characters-secret-key` |
+| `SUPABASE_JWT_ALGORITHM` | JWT signing algorithm | `HS256` |
+| `SUPABASE_JWT_AUDIENCE` | Expected JWT audience | `authenticated` |
+| `SUPABASE_JWT_ISSUER` | Expected JWT issuer | `https://your-project.supabase.co/auth/v1` |
+| `GITHUB_CLIENT_ID` | GitHub OAuth application client ID | `your-github-client-id` |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth application client secret | `your-github-client-secret` |
+| `GITHUB_OAUTH_REDIRECT_URI` | GitHub OAuth callback redirect URI | `http://localhost:8000/api/v1/github/callback` |
+| `GITHUB_API_BASE_URL` | GitHub API base URL | `https://api.github.com` |
+| `NEBIUS_API_KEY` | *(Planned Phase 13)* Nebius token API key | `nebius-api-key-placeholder` |
+| `TAVILY_API_KEY` | *(Planned Phase 14)* Tavily search API key | `tavily-api-key-placeholder` |
+
+---
+
+# 23. API Documentation
+
+When the DEVDOC backend is running locally, interactive OpenAPI documentation is accessible at:
+
+* **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+* **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+* **OpenAPI JSON**: [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+
+---
+
+# 24. Current Limitations
+
+As of Phase 9 completion, the following platform components are scheduled for subsequent phases:
+
+* **AI Agent Orchestrator**: Multi-agent coordination and task scheduling (Phase 10).
+* **Investigation Agents**: Dedicated telemetry, Docker, and GitHub inspection agents (Phase 11).
+* **Evidence Engine**: Automated log and metric snapshot gathering (Phase 12).
+* **Nemotron Reasoning**: LLM diagnostic inference via Nebius (Phase 13).
+* **Knowledge Retrieval**: Web search and external knowledge lookup via Tavily (Phase 14).
+* **Root Cause Synthesis**: Automated causal graph synthesis and diagnosis (Phase 15).
+* **Fix Generation & Sandbox**: Automated patch creation and Docker sandbox verification (Phases 16–17).
+* **Human-in-the-Loop Remediation**: Interactive approval dashboards and production remediation (Phase 18).
+
+---
+
+# 25. License
+
+Proprietary / Internal project license. All rights reserved. DEVDOC Team.
