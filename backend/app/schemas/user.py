@@ -25,3 +25,17 @@ class UserResponse(UserBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserUpdate(BaseModel):
+    full_name: str | None = None
+    avatar_url: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class UserDeactivateResponse(BaseModel):
+    success: bool
+    message: str
+    user_id: uuid.UUID
+

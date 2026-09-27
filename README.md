@@ -245,17 +245,21 @@ backend/
 │   ├── schemas/
 │   │   ├── auth.py            # Phase 5 auth payload & sync schemas
 │   │   ├── health.py
+│   │   ├── project.py         # Phase 6 project request/response schemas
 │   │   ├── ready.py
-│   │   └── user.py            # Phase 5 user profile schemas
+│   │   └── user.py            # Phase 5 & 6 user profile schemas
 │   └── services/
-│       └── auth.py            # Phase 5 profile sync & provisioning
+│       ├── auth.py            # Phase 5 profile sync & provisioning
+│       ├── project.py         # Phase 6 project CRUD & validation
+│       └── user.py            # Phase 6 user profile management
 ├── tests/
 │   ├── conftest.py
 │   ├── test_health.py
 │   ├── test_database.py
 │   ├── test_models_phase3.py
 │   ├── test_rls_security.py   # Phase 4 RLS security test suite
-│   └── test_auth_phase5.py    # Phase 5 Authentication & authorization test suite
+│   ├── test_auth_phase5.py    # Phase 5 Authentication & authorization test suite
+│   └── test_phase6_apis.py    # Phase 6 User & Project REST APIs test suite
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── pyproject.toml             # pytest + Ruff config
@@ -275,7 +279,7 @@ backend/
 | Phase 3 | ✅ **Complete** | Database models & relationships (10 core models, constraints, enums) |
 | Phase 4 | ✅ **Complete** | Supabase Row Level Security (RLS) — policies, ownership, isolation |
 | Phase 5 | ✅ **Complete** | Authentication & Authorization — Supabase JWT verification, session propagation, profile sync, project auth |
-| Phase 6 | 🔜 Planned | User & Project APIs — CRUD endpoints, workspace management |
+| Phase 6 | ✅ **Complete** | User & Project APIs — REST endpoints for user profile and project management, ownership enforcement |
 | Phase 7 | 🔜 Planned | GitHub integration |
 | Phase 8 | 🔜 Planned | AI Agent — NVIDIA Nemotron via Nebius |
 | Phase 9 | 🔜 Planned | Root cause engine, fix generator, sandbox |
@@ -332,6 +336,35 @@ python -m pytest tests/test_auth_phase5.py -v
 
 ---
 
+### Phase 6 — User & Project REST APIs
+
+#### 1. Endpoints Overview
+
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/v1/users/me` | Retrieve profile of the authenticated user | Bearer JWT |
+| `PATCH` | `/api/v1/users/me` | Update mutable profile fields (`full_name`, `avatar_url`) | Bearer JWT |
+| `DELETE` | `/api/v1/users/me` | Deactivate account (soft deletion, immediate 403 on subsequent calls) | Bearer JWT |
+| `POST` | `/api/v1/projects` | Create a new project (auto-anchored to authenticated `owner_id`) | Bearer JWT |
+| `GET` | `/api/v1/projects` | List projects owned by the authenticated user (paginated) | Bearer JWT |
+| `GET` | `/api/v1/projects/{project_id}` | Retrieve project by ID (verifies ownership or superuser) | Bearer JWT |
+| `PATCH` | `/api/v1/projects/{project_id}` | Update project metadata and settings | Bearer JWT |
+| `DELETE` | `/api/v1/projects/{project_id}` | Delete project (cascades child domain resources) | Bearer JWT |
+
+#### 2. Security Safeguards
+* **Anti-Spoofing & Immutability**: All mutating endpoints forbid client-supplied ownership or primary identity fields (`id`, `owner_id`, `email`, `is_superuser`, etc.) using Pydantic `extra="forbid"`.
+* **Zero Impersonation**: `owner_id` is always set directly from `current_user.id` derived from the verified JWT `sub`.
+* **Cross-User Protection**: Non-owners attempting to access, update, or delete projects belonging to another user are denied with HTTP 403 Forbidden.
+* **Lifecycle Enforcement**: Deactivated users (`is_active = False`) are blocked from all endpoints by `require_active_user` with HTTP 403 Forbidden.
+
+#### 3. Running Phase 6 Tests
+```bash
+cd backend
+python -m pytest tests/test_phase6_apis.py -v
+```
+
+---
+
 ### Team
 
 | Role | Owns |
@@ -350,6 +383,7 @@ python -m pytest tests/test_auth_phase5.py -v
 | `dev` | Integration |
 | `feature/*` | Feature branches — PR into `dev` |
 
-Current feature branch: `feature/phase5-auth`
+Current feature branch: `feature/phase6-user-project-apis`
+
 
 
