@@ -67,14 +67,22 @@ class Settings(BaseSettings):
     db_echo: bool = Field(default=False)
 
     # ------------------------------------------------------------------ #
-    # Supabase
+    # Supabase & Authentication
     #
     # SUPABASE_SERVICE_ROLE_KEY — backend-only; NEVER sent to frontend
     # SUPABASE_ANON_KEY         — safe for frontend/public use
+    # SUPABASE_JWT_SECRET       — used to verify Supabase-issued JWTs
     # ------------------------------------------------------------------ #
     supabase_url: str = Field(default="")
     supabase_anon_key: str = Field(default="")
     supabase_service_role_key: SecretStr = Field(default=SecretStr(""))
+
+    # JWT verification settings
+    supabase_jwt_secret: SecretStr = Field(default=SecretStr(""))
+    supabase_jwt_algorithm: str = Field(default="HS256")
+    supabase_jwt_audience: str = Field(default="authenticated")
+    supabase_jwt_issuer: str | None = Field(default=None)
+    supabase_jwks_url: str | None = Field(default=None)
 
     # ------------------------------------------------------------------ #
     # Convenience helpers
@@ -87,6 +95,15 @@ class Settings(BaseSettings):
     def database_configured(self) -> bool:
         """True when a real database URL has been provided."""
         return bool(self.database_url)
+
+    @property
+    def jwt_configured(self) -> bool:
+        """True when JWT verification credentials (secret or JWKS) are configured."""
+        return bool(
+            self.supabase_jwt_secret.get_secret_value()
+            or self.supabase_jwks_url
+            or self.supabase_url
+        )
 
 
 settings = Settings()

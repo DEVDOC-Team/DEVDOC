@@ -12,7 +12,9 @@ ignore = [
     "E501",   # line too long (handled by formatter)
     "F821",   # undefined name — false positive for SQLAlchemy forward-ref relationships
     "UP042",  # use StrEnum — our str+Enum pattern is compatible with pydantic and SQLAlchemy
+    "B008",   # do not perform function call in argument defaults (standard FastAPI Depends pattern)
 ]
+
 
 [tool.ruff.lint.per-file-ignores]
 # Test files may use broader exception catches and direct imports

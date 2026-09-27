@@ -242,15 +242,20 @@ backend/
 │   │           ├── 0001_initial_schema.py      # Phase 3 initial schema
 │   │           └── 0002_row_level_security.py  # Phase 4 Supabase RLS
 │   ├── models/                # 10 core domain models
-│   └── schemas/
-│       ├── health.py
-│       └── ready.py
+│   ├── schemas/
+│   │   ├── auth.py            # Phase 5 auth payload & sync schemas
+│   │   ├── health.py
+│   │   ├── ready.py
+│   │   └── user.py            # Phase 5 user profile schemas
+│   └── services/
+│       └── auth.py            # Phase 5 profile sync & provisioning
 ├── tests/
 │   ├── conftest.py
 │   ├── test_health.py
 │   ├── test_database.py
 │   ├── test_models_phase3.py
-│   └── test_rls_security.py   # Phase 4 RLS security test suite
+│   ├── test_rls_security.py   # Phase 4 RLS security test suite
+│   └── test_auth_phase5.py    # Phase 5 Authentication & authorization test suite
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── pyproject.toml             # pytest + Ruff config
@@ -269,12 +274,61 @@ backend/
 | Phase 2 | ✅ **Complete** | Database foundation — Supabase, PostgreSQL, SQLAlchemy async engine, session |
 | Phase 3 | ✅ **Complete** | Database models & relationships (10 core models, constraints, enums) |
 | Phase 4 | ✅ **Complete** | Supabase Row Level Security (RLS) — policies, ownership, isolation |
-| Phase 5 | 🔜 Planned | Authentication — Supabase Auth, OAuth, JWT validation |
+| Phase 5 | ✅ **Complete** | Authentication & Authorization — Supabase JWT verification, session propagation, profile sync, project auth |
 | Phase 6 | 🔜 Planned | User & Project APIs — CRUD endpoints, workspace management |
 | Phase 7 | 🔜 Planned | GitHub integration |
 | Phase 8 | 🔜 Planned | AI Agent — NVIDIA Nemotron via Nebius |
 | Phase 9 | 🔜 Planned | Root cause engine, fix generator, sandbox |
 | Phase 10 | 🔜 Planned | Observability — metrics, tracing |
+
+---
+
+### Phase 5 — Authentication & Authorization Architecture
+
+#### 1. Identity & Authorization Flow
+```text
+Client
+   ↓ (Bearer <Supabase-JWT>)
+FastAPI Request
+   ↓ (app.core.security.extract_bearer_token)
+Bearer Token Extraction
+   ↓ (app.core.security.verify_and_decode_jwt)
+Cryptographic Signature & Claim Verification (sub, exp, aud, iss)
+   ↓ (app.dependencies.get_current_user)
+Authoritative User Profile (public.users matched by UUID)
+   ↓ (app.dependencies.require_project_access)
+Application-Level Project Guard (project.owner_id == current_user.id)
+   ↓ (app.dependencies.get_authenticated_db)
+PostgreSQL Session Context (SET LOCAL request.jwt.claim.sub = <UUID>)
+   ↓
+Supabase RLS Boundary (auth.uid() = User ID & public.has_project_access)
+   ↓
+Authorized Domain Rows Only
+```
+
+#### 2. Key Design & Security Guarantees
+* **Strict Cryptographic Signature Verification**: Signature verification is mandatory; `verify_signature=False` is strictly forbidden. Supports HMAC (HS256) secrets as well as asymmetric JWKS keys with key rotation.
+* **UUID-Anchored Consistency**: The Supabase `auth.users.id` exactly matches `public.users.id` and the JWT `sub` claim. Users are never mapped by mutable fields like email.
+* **Impersonation Prevention**: User profile provisioning (`POST /api/v1/auth/sync`) sources the profile UUID strictly from the verified JWT `sub` claim. Arbitrary IDs in request payloads or query parameters are ignored.
+* **Connection Pool Isolation**: Database session identity is propagated via `SET LOCAL request.jwt.claim.sub = :uid` within the request transaction, accompanied by defensive `RESET request.jwt.claim.sub` in cleanup to prevent identity leakage across pooled connections.
+* **Defense-in-Depth**: Application-level authorization (`require_project_access`) prevents unauthorized processing before hitting the database, while PostgreSQL RLS (`auth.uid()`, `public.has_project_access()`) provides the ultimate database boundary.
+* **Token Logging Protection**: Authorization headers and raw JWTs are never logged. Only structured, non-sensitive audit metadata (UUIDs, event types, error classes) is recorded.
+
+#### 3. Authentication Environment Configuration
+Add to `.env`:
+```bash
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_JWT_SECRET=your-supabase-jwt-secret-minimum-32-chars
+SUPABASE_JWT_ALGORITHM=HS256
+SUPABASE_JWT_AUDIENCE=authenticated
+SUPABASE_JWT_ISSUER=https://your-project.supabase.co/auth/v1
+```
+
+#### 4. Running Phase 5 Tests
+```bash
+cd backend
+python -m pytest tests/test_auth_phase5.py -v
+```
 
 ---
 
@@ -296,5 +350,6 @@ backend/
 | `dev` | Integration |
 | `feature/*` | Feature branches — PR into `dev` |
 
-Current feature branch: `feature/phase4-supabase-rls`
+Current feature branch: `feature/phase5-auth`
+
 
