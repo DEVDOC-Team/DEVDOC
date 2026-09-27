@@ -437,6 +437,75 @@ python -m pytest tests/test_phase7_github.py -v
 
 ---
 
+### Phase 8 — Incident Management
+
+#### 1. Incident Lifecycle & State Transitions
+
+DEVDOC provides a strictly controlled operational lifecycle for incidents:
+
+```
+                  ┌──────────────┐
+                  │     OPEN     │◄────────────┐
+                  └──────┬───────┘             │
+                         │                     │ (Reopen)
+                         ▼                     │
+                  ┌──────────────┐             │
+           ┌─────►│INVESTIGATING ├─────────────┤
+           │      └──────┬───────┘             │
+(Recovery) │             │                     │
+           │             ▼                     │
+           │      ┌──────────────┐             │
+           └──────┤  MITIGATED   ├─────────────┤
+                  └──────┬───────┘             │
+                         │                     │
+                         ▼                     │
+                  ┌──────────────┐             │
+                  │   RESOLVED   ├─────────────┘
+                  └──────┬───────┘
+                         │
+                         ▼
+                  ┌──────────────┐
+                  │    CLOSED    │
+                  └──────────────┘
+```
+
+##### Allowed Transitions
+* `OPEN` → `INVESTIGATING`
+* `INVESTIGATING` → `MITIGATED`, `OPEN`
+* `MITIGATED` → `RESOLVED`, `INVESTIGATING`
+* `RESOLVED` → `CLOSED`, `OPEN` (reopen)
+* `CLOSED` → Terminal state (no further transitions allowed)
+* Same-state updates (idempotent no-op) are permitted.
+* Arbitrary skips (e.g. `OPEN` → `CLOSED`) are strictly forbidden and return HTTP 422.
+
+#### 2. Endpoints Overview
+
+Base route: `/api/v1/projects/{project_id}/incidents`
+
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `POST` | `/api/v1/projects/{project_id}/incidents` | Create an incident (anchored to project in route; anti-spoofing) | Bearer JWT + Project Access |
+| `GET` | `/api/v1/projects/{project_id}/incidents` | List project incidents (paginated: `limit` max 100, `offset`, filterable by `status`, `severity`, `source`) | Bearer JWT + Project Access |
+| `GET` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Retrieve incident details | Bearer JWT + Project Access |
+| `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Update mutable fields (`title`, `description`, `severity`, `source`, `external_reference`) | Bearer JWT + Project Access |
+| `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}/status` | Dedicated lifecycle status transition endpoint | Bearer JWT + Project Access |
+| `DELETE` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Delete incident (returns 200 with deletion confirmation) | Bearer JWT + Project Access |
+
+#### 3. Security, Authorization & RLS Architecture
+* **Project Boundary**: Every project incident endpoint is guarded by `require_project_access` (owner or superuser). Cross-user project access is rejected with HTTP 403 Forbidden.
+* **RLS Isolation**: Authenticated database sessions utilize `get_authenticated_db` to set `request.jwt.claim.sub`. PostgreSQL Row Level Security enforces `public.has_project_access(project_id)`, ensuring database-level data isolation.
+* **Anti-Spoofing & Immutability**: `project_id`, `id`, `created_at`, `updated_at`, and `resolved_at` are immutable and forbidden in request bodies (`extra="forbid"`).
+* **Automatic Lifecycle Bookkeeping**: `resolved_at` is automatically recorded when transitioning into `RESOLVED` and reset if reopened.
+* **Deterministic Ordering & Bounded Pagination**: Incidents are returned ordered by `created_at DESC`. `limit` is capped at a maximum of 100 to prevent denial-of-service / memory exhaustion.
+
+#### 4. Running Phase 8 Tests
+```bash
+cd backend
+python -m pytest tests/test_phase8_incidents.py -v
+```
+
+---
+
 ### Team
 
 | Role | Owns |
@@ -455,7 +524,8 @@ python -m pytest tests/test_phase7_github.py -v
 | `dev` | Integration |
 | `feature/*` | Feature branches — PR into `dev` |
 
-Current feature branch: `feature/phase7-github-integration`
+Current feature branch: `feature/phase8-incident-management`
+
 
 
 

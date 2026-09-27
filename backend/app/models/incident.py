@@ -28,11 +28,12 @@ import enum
 import uuid
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin, UUIDMixin
+from app.db.base import Base, TimestampMixin, UUIDMixin, _utcnow
 
 
 class IncidentSeverity(str, enum.Enum):
@@ -51,6 +52,14 @@ class IncidentStatus(str, enum.Enum):
     CLOSED = "closed"
 
 
+class IncidentSource(str, enum.Enum):
+    MANUAL = "manual"
+    GITHUB = "github"
+    MONITORING = "monitoring"
+    WEBHOOK = "webhook"
+    SYSTEM = "system"
+
+
 class Incident(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "incidents"
 
@@ -58,7 +67,10 @@ class Incident(UUIDMixin, TimestampMixin, Base):
         CheckConstraint("affected_users >= 0", name="ck_incidents_affected_users_non_negative"),
         Index("ix_incidents_project_id_status", "project_id", "status"),
         Index("ix_incidents_project_id_severity", "project_id", "severity"),
+        Index("ix_incidents_project_id_source", "project_id", "source"),
+        Index("ix_incidents_detected_at", "detected_at"),
     )
+
 
     # Ownership / grouping
     project_id: Mapped[uuid.UUID] = mapped_column(
@@ -95,6 +107,12 @@ class Incident(UUIDMixin, TimestampMixin, Base):
         default=IncidentStatus.OPEN,
         index=True,
     )
+    source: Mapped[IncidentSource] = mapped_column(
+        SAEnum(IncidentSource, name="incidentsource"),
+        nullable=False,
+        default=IncidentSource.MANUAL,
+        server_default=sa.text("'manual'"),
+    )
 
     # External reference (e.g. PagerDuty id, Jira ticket)
     external_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -102,10 +120,28 @@ class Incident(UUIDMixin, TimestampMixin, Base):
     # Rough affected user count; updated as investigation progresses
     affected_users: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    # When the incident was detected (defaults to creation time)
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.func.now(),
+    )
+
     # MTTD / MTTR analytics — set when status transitions to RESOLVED/CLOSED
     resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    @property
+    def external_reference(self) -> str | None:
+        """Alias for external_ref for schema consistency."""
+        return self.external_ref
+
+    @external_reference.setter
+    def external_reference(self, value: str | None) -> None:
+        self.external_ref = value
+
 
     # ------------------------------------------------------------------ #
     # Relationships

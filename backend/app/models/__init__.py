@@ -14,7 +14,7 @@ from app.models.deployment import Deployment, DeploymentStatus
 from app.models.evidence import Evidence, EvidenceKind
 from app.models.fix_proposal import FixProposal, FixStatus
 from app.models.github_connection import UserGitHubConnection
-from app.models.incident import Incident, IncidentSeverity, IncidentStatus
+from app.models.incident import Incident, IncidentSeverity, IncidentSource, IncidentStatus
 from app.models.investigation import Investigation, InvestigationStatus
 from app.models.project import Project
 from app.models.repository import Repository, VCSProvider
@@ -38,6 +38,7 @@ __all__ = [
     # Enums
     "VCSProvider",
     "IncidentSeverity",
+    "IncidentSource",
     "IncidentStatus",
     "InvestigationStatus",
     "EvidenceKind",
@@ -46,4 +47,5 @@ __all__ = [
     "ApprovalDecision",
     "AuditOutcome",
 ]
+
 
