@@ -85,6 +85,16 @@ class Settings(BaseSettings):
     supabase_jwks_url: str | None = Field(default=None)
 
     # ------------------------------------------------------------------ #
+    # GitHub Integration (Phase 7)
+    # ------------------------------------------------------------------ #
+    github_client_id: str = Field(default="")
+    github_client_secret: SecretStr = Field(default=SecretStr(""))
+    github_oauth_redirect_uri: str = Field(
+        default="http://localhost:8000/api/v1/github/callback"
+    )
+    github_api_base_url: str = Field(default="https://api.github.com")
+
+    # ------------------------------------------------------------------ #
     # Convenience helpers
     # ------------------------------------------------------------------ #
     @property
@@ -104,6 +114,11 @@ class Settings(BaseSettings):
             or self.supabase_jwks_url
             or self.supabase_url
         )
+
+    @property
+    def github_configured(self) -> bool:
+        """True when GitHub OAuth client credentials are configured."""
+        return bool(self.github_client_id and self.github_client_secret.get_secret_value())
 
 
 settings = Settings()

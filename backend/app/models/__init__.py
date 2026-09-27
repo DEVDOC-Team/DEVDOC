@@ -13,6 +13,7 @@ from app.models.audit_log import AuditLog, AuditOutcome
 from app.models.deployment import Deployment, DeploymentStatus
 from app.models.evidence import Evidence, EvidenceKind
 from app.models.fix_proposal import FixProposal, FixStatus
+from app.models.github_connection import UserGitHubConnection
 from app.models.incident import Incident, IncidentSeverity, IncidentStatus
 from app.models.investigation import Investigation, InvestigationStatus
 from app.models.project import Project
@@ -24,6 +25,7 @@ __all__ = [
     "Base",
     # Models
     "User",
+    "UserGitHubConnection",
     "Project",
     "Repository",
     "Incident",
@@ -44,3 +46,4 @@ __all__ = [
     "ApprovalDecision",
     "AuditOutcome",
 ]
+
