@@ -424,7 +424,9 @@ async def test_investigation_project_fk_invalid(db: AsyncSession, incident: Inci
 
 
 async def test_investigation_confidence_score_constraint_declared():
-    """CheckConstraint on confidence_score is in metadata."""
+    """CheckConstraint on confidence_score is in metadata if column exists."""
+    if "confidence_score" not in Base.metadata.tables["investigations"].columns:
+        pytest.skip("confidence_score removed in Phase 9")
     constraint_names = {
         c.name
         for c in Base.metadata.tables["investigations"].constraints

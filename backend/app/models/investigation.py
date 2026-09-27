@@ -47,10 +47,6 @@ class Investigation(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "investigations"
 
     __table_args__ = (
-        CheckConstraint(
-            "confidence_score IS NULL OR (confidence_score >= 0 AND confidence_score <= 100)",
-            name="ck_investigations_confidence_score_range",
-        ),
         CheckConstraint("tokens_used >= 0", name="ck_investigations_tokens_non_negative"),
         CheckConstraint(
             "estimated_cost_usd >= 0", name="ck_investigations_cost_non_negative"
@@ -87,18 +83,15 @@ class Investigation(UUIDMixin, TimestampMixin, Base):
         default=InvestigationStatus.PENDING,
         index=True,
     )
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
-    # AI output (populated when status = COMPLETED)
-    root_cause_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    confidence_score: Mapped[int | None] = mapped_column(
-        Integer, nullable=True
-    )  # 0-100; constrained by CHECK above
-
     # Token/cost tracking (for budget guard in the AI phase)
-    # Preserved from Phase 2 — do NOT remove.
     tokens_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     estimated_cost_usd: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
