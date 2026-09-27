@@ -365,12 +365,84 @@ python -m pytest tests/test_phase6_apis.py -v
 
 ---
 
+### Phase 7 — GitHub Integration
+
+#### 1. Integration Architecture
+
+```
+User (Browser)
+   ↓ 1. Initiate OAuth
+GET /api/v1/github/connect
+   ↓ 2. Redirect to GitHub with signed CSRF state
+https://github.com/login/oauth/authorize?client_id=...&state=...
+   ↓ 3. User authorizes, GitHub redirects back
+GET /api/v1/github/callback?code=...&state=...
+   ↓ 4. Exchange code for access token (POST https://github.com/login/oauth/access_token)
+   ↓ 5. Fetch GitHub profile (GET https://api.github.com/user)
+   ↓ 6. Persist UserGitHubConnection (RLS: user_id = auth.uid())
+Safe Response (connected=True, username=octocat; tokens NEVER returned)
+   ↓
+Project Repository Association
+POST /api/v1/projects/{project_id}/github/repository
+   ↓ (verifies DEVDOC project ownership + verifies repo access on GitHub via GitHubAPIClient)
+Persist Repository attached to Project
+   ↓
+Future Investigation Pipeline
+GitHubAPIClient (Inspection of branches, commits, PRs, issues, files, workflow runs)
+```
+
+#### 2. Endpoints Overview
+
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/v1/github/connect` | Initiates GitHub OAuth; returns authorization URL with signed CSRF state | Bearer JWT |
+| `GET` | `/api/v1/github/callback` | OAuth callback; validates CSRF state, exchanges code, and stores credentials | None (state-bound) |
+| `GET` | `/api/v1/github/connection` | Returns safe connection status for the authenticated user (no tokens) | Bearer JWT |
+| `DELETE` | `/api/v1/github/connection` | Disconnects and removes stored GitHub integration credentials | Bearer JWT |
+| `GET` | `/api/v1/github/repositories` | Lists repositories accessible to the user's connected GitHub account (paginated) | Bearer JWT |
+| `POST` | `/api/v1/projects/{project_id}/github/repository` | Associates an authorized GitHub repository with a DEVDOC project | Bearer JWT + Project Access |
+| `GET` | `/api/v1/projects/{project_id}/github/repository` | Retrieves the project's connected GitHub repository | Bearer JWT + Project Access |
+| `DELETE` | `/api/v1/projects/{project_id}/github/repository` | Disconnects the GitHub repository from the project | Bearer JWT + Project Access |
+| `GET` | `/api/v1/projects/{project_id}/github/branches` | Lists branches of the connected GitHub repository | Bearer JWT + Project Access |
+| `GET` | `/api/v1/projects/{project_id}/github/commits` | Lists commits of the connected GitHub repository | Bearer JWT + Project Access |
+| `GET` | `/api/v1/projects/{project_id}/github/pulls` | Lists pull requests of the connected GitHub repository | Bearer JWT + Project Access |
+| `GET` | `/api/v1/projects/{project_id}/github/issues` | Lists issues of the connected GitHub repository | Bearer JWT + Project Access |
+| `GET` | `/api/v1/projects/{project_id}/github/contents` | Retrieves file contents / directory metadata for investigation | Bearer JWT + Project Access |
+| `GET` | `/api/v1/projects/{project_id}/github/workflows` | Lists GitHub Actions workflow runs for the connected repository | Bearer JWT + Project Access |
+
+#### 3. Security & Safety Controls
+* **Zero Credential Exposure**: GitHub `access_token` and client secrets are **never** returned in API responses, error details, or application logs.
+* **Cryptographic CSRF Prevention**: OAuth states are cryptographically signed HMAC tokens containing `sub` (DEVDOC user ID), timestamp expiry, and random nonces. Mismatches or expired states are rejected with HTTP 400/403.
+* **Row Level Security (RLS)**: Stored credentials in `user_github_connections` are protected by PostgreSQL RLS (`user_id = auth.uid()`). User A cannot view, modify, or delete User B's GitHub connection.
+* **Project Ownership Verification**: Every project-scoped repository endpoint enforces `require_project_access` (owner or superuser). User A cannot associate repositories with or read repositories from User B's project.
+* **Remote Permission Verification**: When attaching a repository, DEVDOC verifies against the GitHub API that the repository exists and the authenticated user actually has access.
+* **Anti-SSRF & Input Validation**: No arbitrary proxy endpoints (`/github/proxy`). All GitHub API requests are routed strictly through the typed `GitHubAPIClient` with validated coordinates (`owner/repo`) and traversal protection.
+* **Rate-Limit & Upstream Error Translation**: GitHub upstream errors (401, 403, 404, 409, 422, 429, 5xx) and timeouts (HTTP 504) are translated into predictable application errors without exposing raw upstream responses.
+
+#### 4. Environment Configuration
+Add to `.env`:
+```bash
+# GitHub Integration
+GITHUB_CLIENT_ID="your-github-oauth-app-client-id"
+GITHUB_CLIENT_SECRET="your-github-oauth-app-client-secret"
+GITHUB_OAUTH_REDIRECT_URI="http://localhost:8000/api/v1/github/callback"
+GITHUB_API_BASE_URL="https://api.github.com"
+```
+
+#### 5. Running Phase 7 Tests
+```bash
+cd backend
+python -m pytest tests/test_phase7_github.py -v
+```
+
+---
+
 ### Team
 
 | Role | Owns |
 |---|---|
 | AI / Agent Engineer | orchestrator, agents, reasoning, evidence engine, root cause, fix generator, sandbox |
-| Backend / DevOps Engineer | backend, infra, database, security, CI/CD |
+| Backend / DevOps Engineer | backend, infra, database, security, CI/CD, integrations |
 | Frontend Engineer | frontend |
 
 ---
@@ -383,7 +455,8 @@ python -m pytest tests/test_phase6_apis.py -v
 | `dev` | Integration |
 | `feature/*` | Feature branches — PR into `dev` |
 
-Current feature branch: `feature/phase6-user-project-apis`
+Current feature branch: `feature/phase7-github-integration`
+
 
 
 

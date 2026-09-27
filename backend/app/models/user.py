@@ -74,6 +74,11 @@ class User(UUIDMixin, TimestampMixin, Base):
     investigations: Mapped[list[Investigation]] = relationship(  # type: ignore[name-defined]
         "Investigation", back_populates="initiated_by", foreign_keys="Investigation.initiated_by_id"
     )
+    # GitHub OAuth connection (one per user, private credentials)
+    github_connection: Mapped[UserGitHubConnection | None] = relationship(  # type: ignore[name-defined]
+        "UserGitHubConnection", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+
 
     def __repr__(self) -> str:
         return f"<User id={self.id!s:.8} email={self.email!r}>"
