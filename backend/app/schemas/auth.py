@@ -1,0 +1,24 @@
+"""Authentication schemas."""
+
+from __future__ import annotations
+
+import uuid
+
+from pydantic import BaseModel
+
+from app.schemas.user import UserResponse
+
+
+class TokenPayload(BaseModel):
+    sub: uuid.UUID
+    email: str | None = None
+    exp: int
+    aud: str | None = None
+    iss: str | None = None
+    role: str | None = None
+
+
+class AuthSyncResponse(BaseModel):
+    success: bool = True
+    message: str
+    user: UserResponse
