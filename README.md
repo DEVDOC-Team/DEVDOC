@@ -2,11 +2,11 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE platform that helps development teams investigate application, infrastructure, and deployment problems — and propose verified fixes.
 
-> ⚠️ **Phase 3 — Database Models & Relationships complete.** Phases 1–3 of the backend are implemented. Authentication, RLS, and API endpoints are coming in subsequent phases.
+> ⚠️ **Phase 4 — Supabase Row Level Security (RLS) complete.** Phases 1–4 of the backend are implemented. Authentication (Phase 5) and Project/User APIs (Phase 6) are coming in subsequent phases.
 
 ---
 
-## Backend — Phase 3 — Database Models & Relationships
+## Backend — Phase 4 — Supabase Row Level Security (RLS)
 
 ### Technology Stack
 
@@ -155,6 +155,69 @@ docker run -p 8000:8000 devdoc-backend:phase1
 
 ---
 
+---
+
+### Database & Row Level Security (RLS) — Phase 4
+
+Phase 4 implements defense-in-depth authorization directly inside PostgreSQL via Supabase Row Level Security (RLS). Database-level constraints ensure that authenticated users cannot access, modify, or inject records into projects they do not own.
+
+#### Protected Tables (10 Tables)
+
+| Table | RLS Enabled | SELECT | INSERT | UPDATE | DELETE | Authorization Basis |
+|---|:---:|:---:|:---:|:---:|:---:|---|
+| `users` | Yes | Own | Own | Own | Own | `id = auth.uid()` |
+| `projects` | Yes | Owner | Owner | Owner | Owner | `owner_id = auth.uid()` |
+| `repositories` | Yes | Owner | Owner | Owner | Owner | `has_project_access(project_id)` |
+| `incidents` | Yes | Owner | Owner | Owner | Owner | `has_project_access(project_id)` |
+| `investigations` | Yes | Owner | Owner | Owner | Owner | `has_project_access(project_id)` |
+| `evidence` | Yes | Owner | Owner | Owner | Owner | `investigation -> project owner` |
+| `deployments` | Yes | Owner | Owner | Owner | Owner | `has_project_access(project_id)` |
+| `fix_proposals` | Yes | Owner | Owner | Owner | Owner | `investigation -> project owner` |
+| `approvals` | Yes | Owner | Approver+Owner | Approver+Owner | Approver+Owner | `fix_proposal -> project owner & approver_id = auth.uid()` |
+| `audit_logs` | Yes | Scoped | Scoped | ❌ Denied | ❌ Denied | `project owner / actor_id = auth.uid()` (Append-only) |
+
+#### Running Migrations
+
+```bash
+cd backend
+
+# View pending or executed migrations
+alembic history
+alembic heads
+
+# Apply migrations up to head (0002_row_level_security)
+alembic upgrade head
+
+# Revert RLS migration
+alembic downgrade -1
+```
+
+#### Running RLS Security Tests
+
+```bash
+cd backend
+
+# Run full test suite (Phase 1–3 + Phase 4 RLS security tests)
+pytest -v
+
+# Run RLS security tests specifically
+pytest tests/test_rls_security.py -v
+```
+
+#### Security Model & Service-Role Considerations
+
+* **User Identity**: Identity is anchored on Supabase's `auth.uid()`, matching the `User.id` UUID primary key.
+* **Defense in Depth**: Even if application-level checks fail or are bypassed, PostgreSQL RLS rejects cross-tenant reads, writes, updates, and deletes.
+* **Service-Role Key**: The `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS and is restricted exclusively to trusted backend worker operations (system audit logs, system-triggered background analysis). **It is never exposed to clients, frontends, or logged.**
+* **Append-Only Immutability**: `audit_logs` has no UPDATE or DELETE policies for the `authenticated` role, preventing tampering with history.
+* **Future Project Membership**: The `public.has_project_access(p_project_id)` `SECURITY DEFINER` function encapsulates project authorization. When team/collaborator membership tables are introduced in future phases, updating this function extends authorization platform-wide without altering table policies.
+
+#### Phase Dependencies
+* **Phase 5 (Authentication)** must provide valid user JWTs with `sub = user.id` claim for client sessions.
+* **Phase 6 (User & Project APIs)** must enforce application-level authorization in FastAPI while relying on database RLS as an additional security boundary.
+
+---
+
 ### Project Structure
 
 ```
@@ -164,17 +227,30 @@ backend/
 │   │   ├── router.py          # Root API router
 │   │   └── v1/
 │   │       ├── router.py      # v1 router
-│   │       └── health.py      # GET /api/v1/health
+│   │       ├── health.py      # GET /api/v1/health
+│   │       └── ready.py       # GET /api/v1/ready (DB readiness probe)
 │   ├── core/
 │   │   ├── config.py          # pydantic-settings configuration
 │   │   ├── logging.py         # Centralized logging setup
 │   │   └── exceptions.py      # Error handlers
-│   ├── schemas/
-│   │   └── health.py          # HealthResponse schema
-│   └── main.py                # FastAPI application
+│   ├── db/
+│   │   ├── base.py            # Base, UUIDMixin, TimestampMixin
+│   │   ├── session.py         # Async engine & sessionmaker
+│   │   └── migrations/        # Alembic migrations
+│   │       ├── env.py         # Custom migration runner (sync + asyncpg)
+│   │       └── versions/
+│   │           ├── 0001_initial_schema.py      # Phase 3 initial schema
+│   │           └── 0002_row_level_security.py  # Phase 4 Supabase RLS
+│   ├── models/                # 10 core domain models
+│   └── schemas/
+│       ├── health.py
+│       └── ready.py
 ├── tests/
 │   ├── conftest.py
-│   └── test_health.py
+│   ├── test_health.py
+│   ├── test_database.py
+│   ├── test_models_phase3.py
+│   └── test_rls_security.py   # Phase 4 RLS security test suite
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── pyproject.toml             # pytest + Ruff config
@@ -190,13 +266,15 @@ backend/
 | Phase | Status | Description |
 |---|---|---|
 | Phase 1 | ✅ **Complete** | FastAPI foundation, health endpoint, config, logging, error handling, tests |
-| Phase 2 | 🔜 Planned | Database — PostgreSQL, Supabase, SQLAlchemy, Alembic |
-| Phase 3 | 🔜 Planned | Authentication — OAuth, JWT |
-| Phase 4 | 🔜 Planned | GitHub integration |
-| Phase 5 | 🔜 Planned | AI Agent — NVIDIA Nemotron via Nebius |
-| Phase 6 | 🔜 Planned | Root cause engine, fix generator, sandbox |
-| Phase 7 | 🔜 Planned | Security hardening, rate limiting, audit logs |
-| Phase 8 | 🔜 Planned | Observability — metrics, tracing |
+| Phase 2 | ✅ **Complete** | Database foundation — Supabase, PostgreSQL, SQLAlchemy async engine, session |
+| Phase 3 | ✅ **Complete** | Database models & relationships (10 core models, constraints, enums) |
+| Phase 4 | ✅ **Complete** | Supabase Row Level Security (RLS) — policies, ownership, isolation |
+| Phase 5 | 🔜 Planned | Authentication — Supabase Auth, OAuth, JWT validation |
+| Phase 6 | 🔜 Planned | User & Project APIs — CRUD endpoints, workspace management |
+| Phase 7 | 🔜 Planned | GitHub integration |
+| Phase 8 | 🔜 Planned | AI Agent — NVIDIA Nemotron via Nebius |
+| Phase 9 | 🔜 Planned | Root cause engine, fix generator, sandbox |
+| Phase 10 | 🔜 Planned | Observability — metrics, tracing |
 
 ---
 
@@ -218,4 +296,5 @@ backend/
 | `dev` | Integration |
 | `feature/*` | Feature branches — PR into `dev` |
 
-Current feature branch: `feature/backend-foundation`
+Current feature branch: `feature/phase4-supabase-rls`
+
