@@ -735,21 +735,11 @@ Configure `.env` locally using `backend/.env.example` as a template:
 | `GITHUB_OAUTH_REDIRECT_URI` | GitHub OAuth callback redirect URI | `http://localhost:8000/api/v1/github/callback` |
 | `GITHUB_API_BASE_URL` | GitHub API base URL | `https://api.github.com` |
 | `NEBIUS_API_KEY` | *(Planned Phase 13)* Nebius token API key | `nebius-api-key-placeholder` |
-| `TAVILY_API_KEY` | *(Planned Phase 14)* Tavily search API key | `tavily-api-key-placeholder` |
+| `TAVILY_API_KEY` | *(Planned Phase 14)* Tavily search API key | `tavily-api-key-placeholder` 
 
 ---
 
-# 23. API Documentation
-
-When the DEVDOC backend is running locally, interactive OpenAPI documentation is accessible at:
-
-* **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-* **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
-* **OpenAPI JSON**: [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
-
----
-
-# 24. Current Limitations
+# 23. Current Limitations
 
 As of Phase 9 completion, the following platform components are scheduled for subsequent phases:
 
@@ -764,6 +754,6 @@ As of Phase 9 completion, the following platform components are scheduled for su
 
 ---
 
-# 25. License
+# 24. License
 
 Proprietary / Internal project license. All rights reserved. DEVDOC Team.
