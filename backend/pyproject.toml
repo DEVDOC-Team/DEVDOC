@@ -1,5 +1,5 @@
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "orchestrator/tests"]
 asyncio_mode = "auto"
 
 [tool.ruff]
@@ -19,3 +19,5 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Test files may use broader exception catches and direct imports
 "tests/*" = ["F401"]
+"orchestrator/tests/*" = ["F401"]
+

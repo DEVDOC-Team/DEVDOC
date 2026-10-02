@@ -24,6 +24,9 @@ from app.schemas.investigation import (
     InvestigationStatusUpdate,
     InvestigationUpdate,
 )
+from orchestrator.core.context import InvestigationContext
+from orchestrator.core.orchestrator import DEVDOCOrchestrator
+from orchestrator.core.result import ExecutionStatus, OrchestrationResult
 
 # ---------------------------------------------------------------------------
 # Allowed Status Lifecycle Transitions
@@ -316,3 +319,91 @@ class InvestigationService:
             },
         )
         return inv_id
+
+    @staticmethod
+    def build_orchestration_context(
+        investigation: Investigation,
+        initiated_by: User | None = None,
+    ) -> InvestigationContext:
+        """Construct a strongly typed InvestigationContext from an authorized Investigation model."""
+        actor_id = initiated_by.id if initiated_by else investigation.initiated_by_id
+        return InvestigationContext(
+            investigation_id=investigation.id,
+            incident_id=investigation.incident_id,
+            project_id=investigation.project_id,
+            initiated_by_id=actor_id,
+            execution_metadata={
+                "incident_id": str(investigation.incident_id),
+                "project_id": str(investigation.project_id),
+            },
+        )
+
+    @staticmethod
+    async def run_investigation_orchestration(
+        db: AsyncSession,
+        project: Project,
+        incident: Incident,
+        investigation: Investigation,
+        orchestrator: DEVDOCOrchestrator | None = None,
+    ) -> OrchestrationResult:
+        """Execute the investigation orchestrator and persist final lifecycle state.
+
+        Guarantees:
+        - Must be in PENDING or RUNNING status prior to execution.
+        - Automatically transitions PENDING -> RUNNING upon execution start.
+        - Transitions to COMPLETED, FAILED, or CANCELLED based on OrchestrationResult.
+        - Updates error_message and completed_at upon completion.
+        - Flushes state to database.
+        """
+        # Validate boundary
+        if investigation.project_id != project.id or investigation.incident_id != incident.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Investigation '{investigation.id}' does not belong to project/incident",
+            )
+
+        if investigation.status not in (InvestigationStatus.PENDING, InvestigationStatus.RUNNING):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Cannot orchestrate investigation with terminal status '{investigation.status.value}'",
+            )
+
+        # Transition PENDING -> RUNNING if needed
+        if investigation.status == InvestigationStatus.PENDING:
+            investigation.status = InvestigationStatus.RUNNING
+            investigation.started_at = _utcnow()
+            await db.flush()
+
+        engine = orchestrator if orchestrator is not None else DEVDOCOrchestrator()
+        context = InvestigationService.build_orchestration_context(investigation)
+
+        result = await engine.execute(context)
+
+        # Map execution result to Investigation lifecycle status
+        if result.status == ExecutionStatus.SUCCESS:
+            investigation.status = InvestigationStatus.COMPLETED
+            investigation.completed_at = _utcnow()
+        elif result.status == ExecutionStatus.CANCELLED:
+            investigation.status = InvestigationStatus.CANCELLED
+            investigation.completed_at = _utcnow()
+        else:
+            investigation.status = InvestigationStatus.FAILED
+            investigation.completed_at = _utcnow()
+            if result.error_message:
+                investigation.error_message = result.error_message
+
+        await db.flush()
+        await db.refresh(investigation)
+
+        logger.info(
+            "Investigation orchestration completed",
+            extra={
+                "investigation_id": str(investigation.id),
+                "incident_id": str(incident.id),
+                "project_id": str(project.id),
+                "orchestration_status": result.status.value,
+                "investigation_status": investigation.status.value,
+            },
+        )
+        return result
+
