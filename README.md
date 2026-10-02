@@ -2,7 +2,7 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate verified fixes with human-in-the-loop approval.
 
-> **Current Status**: Phase 1–10 backend foundation and orchestrator complete. AI Agents (Phase 11+) upcoming.
+> **Current Status**: Phase 1–11 backend foundation, orchestrator, and operational agents complete. Phase 12+ upcoming.
 
 ---
 
@@ -32,8 +32,8 @@ Human Approval
 Resolve
 ```
 
-* **Implemented Today (Phases 1–10)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, investigation API contract, and the foundational AI Investigation Orchestrator (`backend/orchestrator`).
-* **Planned (Phase 11+)**: Dedicated GitHub/Docker/Monitoring investigation agents, multi-modal evidence collection, Nemotron/Nebius LLM reasoning, Tavily web search, automated root cause synthesis, sandbox fix verification, and interactive human-in-the-loop approval gates.
+* **Implemented Today (Phases 1–11)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, investigation API contract, the foundational AI Investigation Orchestrator (`backend/orchestrator`), and Operational Investigation Agents (`GitHubAgent`, `DockerAgent`, `MonitoringAgent`).
+* **Planned (Phase 12+)**: Automated multi-modal evidence engine and timeline correlation, Nemotron/Nebius LLM reasoning, Tavily web search, automated root cause synthesis, sandbox fix verification, and interactive human-in-the-loop approval gates.
 
 
 ## Why DEVDOC?
@@ -74,7 +74,7 @@ Authentication & JWT            Authoritative Project
                        │
        ┌───────────────┼───────────────┐
        ▼               ▼               ▼
-  GitHub Agent   Docker Agent   Telemetry Agent  [Phase 11 — Planned]
+  GitHub Agent   Docker Agent   Monitoring Agent [Phase 11 — Implemented]
        │               │               │
        └───────────────┬───────────────┘
                        ▼
@@ -645,9 +645,12 @@ python -m pytest tests/test_phase9_investigations.py -v
 python -m ruff check .
 ```
 
-> **Verification Snapshot (Phase 9 Completion)**:
-> * Full Test Suite: **208 passed, 1 skipped, 0 failed** (100% pass rate).
+> **Verification Snapshot (Phase 11 Completion)**:
+> * Full Test Suite: **288 passed, 14 skipped, 0 failed** (100% pass rate across 302 tests).
+> * Phase 11 Operational Agent Tests: **38 passed, 0 failed** (100% pass rate).
+> * Phase 10 Orchestrator Tests: **55 passed, 0 failed** (100% pass rate).
 > * Ruff Lint Check: **All checks passed!** (0 errors, 0 warnings).
+> * Mypy Analysis: **Clean across all Phase 11 and Orchestrator modules**.
 
 ---
 
@@ -742,7 +745,7 @@ Configure `.env` locally using `backend/.env.example` as a template:
 
 # 23. Current Limitations & Phase Status
 
-As of Phase 10 completion, the foundational orchestration framework is established:
+As of Phase 11 completion, the foundational orchestration framework and operational investigation agents are established:
 
 ### IMPLEMENTED (Phase 10 — DEVDOC Orchestrator)
 * **Orchestration Engine**: Central DEVDOCOrchestrator coordinating sequential stage execution, failure handling, and execution tracing (ackend/orchestrator/core/orchestrator.py).
@@ -754,9 +757,16 @@ As of Phase 10 completion, the foundational orchestration framework is establish
 * **InvestigationService Integration**: Clean service-boundary integration methods uild_orchestration_context and 
 un_investigation_orchestration in ackend/app/services/investigation.py.
 
+### IMPLEMENTED (Phase 11 — Operational Investigation Agents)
+* **GitHub Agent (GitHubAgent)**: Structured inspection of repository metadata, branches, recent commits, pull requests, issues, bounded file contents, and GitHub Actions workflow runs. Reuses existing Phase 7 GitHubAPIClient without duplicating auth or exposing tokens (ackend/orchestrator/agents/github_agent.py).
+* **Docker Agent (DockerAgent)**: Structured inspection of container status, exit codes, OOMKilled flags, restart counts, image tags, and bounded log streams via DockerInspector abstraction (DockerHTTPInspector, FakeDockerInspector). Strictly prohibits arbitrary shell execution, os.system, and subprocess (ackend/orchestrator/agents/docker_agent.py, ackend/orchestrator/agents/docker_inspector.py).
+* **Monitoring Agent (MonitoringAgent)**: Vendor-neutral monitoring inspection via MonitoringProvider abstraction (GenericHTTPMonitoringProvider, FakeMonitoringProvider). Gathers service health, CPU/memory metrics, latency percentiles, error rates, and firing alerts. Enforces anti-SSRF protection against AWS/GCP/Azure link-local metadata endpoints (ackend/orchestrator/agents/monitoring_agent.py, ackend/orchestrator/agents/monitoring_provider.py).
+* **Operational Data Sanitizer**: Recursive sanitization of sensitive dictionary keys and regex-based redaction of personal access tokens, OAuth tokens, Bearer headers, private keys, and passwords (ackend/orchestrator/core/sanitizer.py).
+* **Typed Agent Results**: Extended AgentResult contract with investigation_id, execution_id, source, data, warnings, errors, and collected_at (100% backward compatible with Phase 10).
+* **Orchestrator Stage Integration**: CollectEvidenceStage dynamically executes all injected operational agents, propagating sanitized data and recording typed results into InvestigationContext (ackend/orchestrator/stages/investigation.py).
+
 ### NOT IMPLEMENTED (Planned for Future Phases)
-* **Investigation Agents**: Dedicated GitHub, Docker, and Monitoring agents (Phase 11).
-* **Evidence Engine**: Automated multi-modal evidence collection and timeline correlation (Phase 12).
+* **Evidence Engine**: Automated multi-modal evidence collection, timeline synthesis, and evidence graph correlation (Phase 12).
 * **Nemotron Reasoning via Nebius**: NVIDIA Nemotron LLM reasoning and token budget guarding (Phase 13).
 * **Knowledge Retrieval**: Web search and external incident knowledge lookup via Tavily (Phase 14).
 * **Root Cause Engine**: Automated causal graph synthesis and fault diagnosis (Phase 15).

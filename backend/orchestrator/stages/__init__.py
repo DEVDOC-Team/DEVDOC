@@ -12,6 +12,7 @@ from orchestrator.stages.investigation import (
     VerifyStage,
     create_default_stage_registry,
     create_default_workflow,
+    create_operational_stage_registry,
 )
 from orchestrator.stages.registry import StageRegistry
 
@@ -26,4 +27,5 @@ __all__ = [
     "VerifyStage",
     "create_default_stage_registry",
     "create_default_workflow",
+    "create_operational_stage_registry",
 ]
