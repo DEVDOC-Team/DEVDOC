@@ -14,10 +14,11 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+from orchestrator.contracts.agent import BaseAgent
 from orchestrator.contracts.execution import FailurePolicy, WorkflowDefinition
 from orchestrator.contracts.stage import BaseStage, StageIdentifier
 from orchestrator.core.context import InvestigationContext
-from orchestrator.core.result import ExecutionStatus, StageResult
+from orchestrator.core.result import AgentResult, ExecutionStatus, StageResult
 from orchestrator.stages.registry import StageRegistry
 
 
@@ -74,7 +75,10 @@ class InitializeStage(BaseStage):
 
 
 class CollectEvidenceStage(BaseStage):
-    """Evidence collection contract stage (delegates to future Phase 11 & 12 engines)."""
+    """Evidence collection stage coordinating operational investigation agents."""
+
+    def __init__(self, agents: list[BaseAgent] | None = None) -> None:
+        self.agents: list[BaseAgent] = agents or []
 
     @property
     def stage_id(self) -> str:
@@ -86,28 +90,80 @@ class CollectEvidenceStage(BaseStage):
 
     @property
     def description(self) -> str:
-        return "Coordinates evidence collection from logs, telemetry, and source control."
+        return "Coordinates evidence collection from logs, telemetry, containers, and source control."
 
     async def execute(self, context: InvestigationContext) -> StageResult:
         start_time = time.perf_counter()
         started_at = datetime.now(UTC)
         context.record_stage_start(self.stage_id)
 
+        agent_results: list[AgentResult] = []
+        warnings: list[str] = []
+        errors: list[str] = []
+        has_failure = False
+
+        for agent in self.agents:
+            if context.is_cancelled():
+                warnings.append(
+                    f"Evidence collection cancelled before executing agent '{agent.identifier}'"
+                )
+                break
+
+            agent_start = time.perf_counter()
+            agent_started_at = datetime.now(UTC)
+            try:
+                res = await agent.execute(context)
+            except Exception as exc:
+                agent_duration = (time.perf_counter() - agent_start) * 1000.0
+                err_text = f"Unhandled exception in agent '{agent.identifier}': {exc}"
+                errors.append(err_text)
+                res = AgentResult(
+                    agent_id=agent.identifier,
+                    status=ExecutionStatus.FAILED,
+                    investigation_id=context.investigation_id,
+                    execution_id=context.execution_id,
+                    error_message=err_text,
+                    errors=[err_text],
+                    started_at=agent_started_at,
+                    completed_at=datetime.now(UTC),
+                    duration_ms=agent_duration,
+                )
+
+            agent_results.append(res)
+            if res.status == ExecutionStatus.FAILED:
+                has_failure = True
+                if res.error_message:
+                    errors.append(res.error_message)
+            if res.warnings:
+                warnings.extend(res.warnings)
+
         output_meta: dict[str, Any] = {
-            "evidence_collection_status": "ready_for_phase11_agents",
+            "evidence_collection_status": "completed" if self.agents else "ready_for_phase11_agents",
             "evidence_reference_count": len(context.collected_evidence_references),
+            "agents_executed": [a.agent_id for a in agent_results],
+            "agents_count": len(agent_results),
+            "successful_agents": len(
+                [a for a in agent_results if a.status == ExecutionStatus.SUCCESS]
+            ),
         }
         context.record_stage_complete(self.stage_id)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
+        stage_status = ExecutionStatus.FAILED if has_failure else ExecutionStatus.SUCCESS
+        err_msg = "; ".join(errors) if errors else None
+
         return StageResult(
             stage_id=self.stage_id,
-            status=ExecutionStatus.SUCCESS,
+            status=stage_status,
             output_metadata=output_meta,
+            agent_results=agent_results,
+            warnings=warnings,
+            error_message=err_msg,
             started_at=started_at,
             completed_at=datetime.now(UTC),
             duration_ms=duration_ms,
         )
+
 
 
 class AnalyzeStage(BaseStage):
@@ -322,3 +378,29 @@ def create_default_workflow() -> WorkflowDefinition:
         ],
         failure_policy=FailurePolicy.FAIL_FAST,
     )
+
+
+def create_operational_stage_registry(
+    github_agent: BaseAgent | None = None,
+    docker_agent: BaseAgent | None = None,
+    monitoring_agent: BaseAgent | None = None,
+) -> StageRegistry:
+    """Build a StageRegistry configured with operational investigation agents."""
+    agents: list[BaseAgent] = []
+    if github_agent is not None:
+        agents.append(github_agent)
+    if docker_agent is not None:
+        agents.append(docker_agent)
+    if monitoring_agent is not None:
+        agents.append(monitoring_agent)
+
+    registry = StageRegistry()
+    registry.register(InitializeStage())
+    registry.register(CollectEvidenceStage(agents=agents))
+    registry.register(AnalyzeStage())
+    registry.register(DiagnoseStage())
+    registry.register(ProposeFixStage())
+    registry.register(VerifyStage())
+    registry.register(CompleteStage())
+    return registry
+

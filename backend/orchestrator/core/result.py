@@ -36,6 +36,12 @@ class AgentResult:
     started_at: datetime | None = None
     completed_at: datetime | None = None
     duration_ms: float = 0.0
+    investigation_id: uuid.UUID | None = None
+    execution_id: uuid.UUID | None = None
+    source: str | None = None
+    data: dict[str, Any] = field(default_factory=dict)
+    collected_at: datetime | None = None
+    errors: list[str] = field(default_factory=list)
 
     @property
     def is_successful(self) -> bool:
@@ -45,13 +51,20 @@ class AgentResult:
         return {
             "agent_id": self.agent_id,
             "status": self.status.value,
+            "investigation_id": str(self.investigation_id) if self.investigation_id else None,
+            "execution_id": str(self.execution_id) if self.execution_id else None,
+            "source": self.source,
+            "data": self.data,
             "output_metadata": self.output_metadata,
             "warnings": list(self.warnings),
+            "errors": list(self.errors),
             "error_message": self.error_message,
+            "collected_at": self.collected_at.isoformat() if self.collected_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "duration_ms": self.duration_ms,
         }
+
 
 
 @dataclass
