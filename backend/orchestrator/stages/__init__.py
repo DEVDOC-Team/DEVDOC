@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from orchestrator.rca.service import RootCauseAnalysisService
 from orchestrator.stages.investigation import (
     AnalyzeStage,
     CollectEvidenceStage,
@@ -24,6 +25,7 @@ __all__ = [
     "InitializeStage",
     "ProposeFixStage",
     "StageRegistry",
+    "RootCauseAnalysisService",
     "VerifyStage",
     "create_default_stage_registry",
     "create_default_workflow",

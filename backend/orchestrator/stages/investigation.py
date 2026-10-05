@@ -3,9 +3,9 @@
 Implements the default investigation lifecycle stages for DEVDOC:
 INITIALIZE → COLLECT → ANALYZE → DIAGNOSE → PROPOSE → VERIFY → COMPLETE
 
-Note: Phase 10 establishes the orchestration contracts only. Actual agent implementations,
-LLM reasoning (Phase 13), Tavily search (Phase 14), root-cause engine (Phase 15),
-fix generator (Phase 16), and sandbox verification (Phase 17) belong to future phases.
+Note: Phase 10 establishes the orchestration contracts. Operational agents, structured LLM
+reasoning (Phase 13), Tavily search (Phase 14), and the root-cause engine (Phase 15) are
+integrated; fix generation (Phase 16) and sandbox verification (Phase 17) remain future work.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from orchestrator.core.result import AgentResult, ExecutionStatus, StageResult
 from orchestrator.evidence.engine import EvidenceEngine
 from orchestrator.knowledge.service import KnowledgeSearchError, KnowledgeSearchService
 from orchestrator.llm.service import LLMService, LLMServiceError
+from orchestrator.rca.service import RCAServiceError, RootCauseAnalysisService
 from orchestrator.stages.registry import StageRegistry
 
 
@@ -94,7 +95,9 @@ class CollectEvidenceStage(BaseStage):
 
     @property
     def description(self) -> str:
-        return "Coordinates evidence collection from logs, telemetry, containers, and source control."
+        return (
+            "Coordinates evidence collection from logs, telemetry, containers, and source control."
+        )
 
     async def execute(self, context: InvestigationContext) -> StageResult:
         start_time = time.perf_counter()
@@ -142,7 +145,9 @@ class CollectEvidenceStage(BaseStage):
                 warnings.extend(res.warnings)
 
         output_meta: dict[str, Any] = {
-            "evidence_collection_status": "completed" if self.agents else "completed_without_agents",
+            "evidence_collection_status": "completed"
+            if self.agents
+            else "completed_without_agents",
             "evidence_reference_count": len(context.collected_evidence_references),
             "agents_executed": [a.agent_id for a in agent_results],
             "agents_count": len(agent_results),
@@ -180,7 +185,6 @@ class CollectEvidenceStage(BaseStage):
         )
 
 
-
 class AnalyzeStage(BaseStage):
     """Evidence reasoning stage; provider use requires explicit service injection."""
 
@@ -208,6 +212,7 @@ class AnalyzeStage(BaseStage):
         start_time = time.perf_counter()
         started_at = datetime.now(UTC)
         context.record_stage_start(self.stage_id)
+        context.execution_metadata.pop("phase13_reasoning", None)
 
         output_meta: dict[str, Any] = {
             "analysis_status": "reasoning_disabled",
@@ -223,11 +228,12 @@ class AnalyzeStage(BaseStage):
             and context.evidence_collection.items
         ):
             try:
-                search_result, updated_evidence = (
-                    await self.knowledge_search_service.search_investigation(
-                        context,
-                        context.evidence_collection,
-                    )
+                (
+                    search_result,
+                    updated_evidence,
+                ) = await self.knowledge_search_service.search_investigation(
+                    context,
+                    context.evidence_collection,
                 )
             except KnowledgeSearchError as exc:
                 status = ExecutionStatus.FAILED
@@ -270,6 +276,9 @@ class AnalyzeStage(BaseStage):
                 output_meta["analysis_status"] = "completed"
                 output_meta["reasoning"] = response.reasoning.model_dump(mode="json")
                 output_meta["llm_metadata"] = response.metadata.model_dump(mode="json")
+                context.execution_metadata["phase13_reasoning"] = response.reasoning.model_dump(
+                    mode="json"
+                )
         elif self.llm_service is not None:
             output_meta["analysis_status"] = (
                 "skipped_knowledge_search_failure"
@@ -297,7 +306,13 @@ class AnalyzeStage(BaseStage):
 
 
 class DiagnoseStage(BaseStage):
-    """Root cause diagnosis contract stage (future Phase 15)."""
+    """Evidence-grounded Phase 15 root-cause analysis stage."""
+
+    def __init__(
+        self,
+        rca_service: RootCauseAnalysisService | None = None,
+    ) -> None:
+        self.rca_service = rca_service
 
     @property
     def stage_id(self) -> str:
@@ -317,15 +332,32 @@ class DiagnoseStage(BaseStage):
         context.record_stage_start(self.stage_id)
 
         output_meta: dict[str, Any] = {
-            "diagnosis_status": "ready_for_phase15_root_cause",
+            "diagnosis_status": "disabled" if self.rca_service is None else "pending",
         }
+        status = ExecutionStatus.SUCCESS
+        error_message: str | None = None
+        if self.rca_service is not None:
+            try:
+                analysis = await self.rca_service.analyze(context)
+            except RCAServiceError as exc:
+                status = (
+                    ExecutionStatus.CANCELLED if context.is_cancelled() else ExecutionStatus.FAILED
+                )
+                error_message = str(exc)
+                output_meta["diagnosis_status"] = (
+                    "cancelled" if status == ExecutionStatus.CANCELLED else "failed"
+                )
+            else:
+                output_meta["diagnosis_status"] = analysis.status.value
+                output_meta["root_cause_analysis"] = analysis.model_dump(mode="json")
         context.record_stage_complete(self.stage_id)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
         return StageResult(
             stage_id=self.stage_id,
-            status=ExecutionStatus.SUCCESS,
+            status=status,
             output_metadata=output_meta,
+            error_message=error_message,
             started_at=started_at,
             completed_at=datetime.now(UTC),
             duration_ms=duration_ms,
@@ -445,6 +477,7 @@ class CompleteStage(BaseStage):
 def create_default_stage_registry(
     llm_service: LLMService | None = None,
     knowledge_search_service: KnowledgeSearchService | None = None,
+    rca_service: RootCauseAnalysisService | None = None,
 ) -> StageRegistry:
     """Build a StageRegistry pre-populated with all 7 canonical investigation stages."""
     registry = StageRegistry()
@@ -456,7 +489,7 @@ def create_default_stage_registry(
             knowledge_search_service=knowledge_search_service,
         )
     )
-    registry.register(DiagnoseStage())
+    registry.register(DiagnoseStage(rca_service=rca_service))
     registry.register(ProposeFixStage())
     registry.register(VerifyStage())
     registry.register(CompleteStage())
@@ -488,6 +521,7 @@ def create_operational_stage_registry(
     monitoring_agent: BaseAgent | None = None,
     llm_service: LLMService | None = None,
     knowledge_search_service: KnowledgeSearchService | None = None,
+    rca_service: RootCauseAnalysisService | None = None,
 ) -> StageRegistry:
     """Build a StageRegistry configured with operational investigation agents."""
     agents: list[BaseAgent] = []
@@ -507,7 +541,7 @@ def create_operational_stage_registry(
             knowledge_search_service=knowledge_search_service,
         )
     )
-    registry.register(DiagnoseStage())
+    registry.register(DiagnoseStage(rca_service=rca_service))
     registry.register(ProposeFixStage())
     registry.register(VerifyStage())
     registry.register(CompleteStage())

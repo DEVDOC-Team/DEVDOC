@@ -21,6 +21,7 @@ from orchestrator.core.result import (
 )
 from orchestrator.knowledge.service import KnowledgeSearchService
 from orchestrator.llm.service import LLMService
+from orchestrator.rca.service import RootCauseAnalysisService
 from orchestrator.stages.investigation import (
     create_default_stage_registry,
     create_default_workflow,
@@ -48,6 +49,7 @@ class DEVDOCOrchestrator:
         *,
         llm_service: LLMService | None = None,
         knowledge_search_service: KnowledgeSearchService | None = None,
+        rca_service: RootCauseAnalysisService | None = None,
     ) -> None:
         self.registry = (
             registry
@@ -55,6 +57,7 @@ class DEVDOCOrchestrator:
             else create_default_stage_registry(
                 llm_service=llm_service,
                 knowledge_search_service=knowledge_search_service,
+                rca_service=rca_service,
             )
         )
         self.workflow = workflow if workflow is not None else create_default_workflow()
@@ -85,7 +88,8 @@ class DEVDOCOrchestrator:
             )
             return OrchestrationResult(
                 execution_id=getattr(context, "execution_id", None) or context.execution_id,
-                investigation_id=getattr(context, "investigation_id", None) or context.investigation_id,
+                investigation_id=getattr(context, "investigation_id", None)
+                or context.investigation_id,
                 incident_id=getattr(context, "incident_id", None) or context.incident_id,
                 project_id=getattr(context, "project_id", None) or context.project_id,
                 workflow_id=self.workflow.workflow_id,
@@ -106,7 +110,8 @@ class DEVDOCOrchestrator:
                 project_id=context.project_id,
                 workflow_id=self.workflow.workflow_id,
                 status=ExecutionStatus.CANCELLED,
-                error_message=context.cancellation_token.reason or "Investigation cancelled prior to execution",
+                error_message=context.cancellation_token.reason
+                or "Investigation cancelled prior to execution",
                 started_at=started_at,
                 completed_at=datetime.now(UTC),
                 duration_ms=duration_ms,
@@ -116,7 +121,9 @@ class DEVDOCOrchestrator:
         for sid in self.workflow.stage_ids:
             if not self.registry.contains(sid):
                 duration_ms = (time.perf_counter() - start_time) * 1000.0
-                err_msg = f"Workflow '{self.workflow.workflow_id}' references unregistered stage '{sid}'"
+                err_msg = (
+                    f"Workflow '{self.workflow.workflow_id}' references unregistered stage '{sid}'"
+                )
                 logger.error(err_msg)
                 return OrchestrationResult(
                     execution_id=context.execution_id,
@@ -194,9 +201,7 @@ class DEVDOCOrchestrator:
                 context.add_error(f"Stage '{stage_id}' failed: {stage_result.error_message}")
                 if self.workflow.failure_policy == FailurePolicy.FAIL_FAST:
                     overall_status = ExecutionStatus.FAILED
-                    final_error_message = (
-                        f"Stage '{stage_id}' failed: {stage_result.error_message}"
-                    )
+                    final_error_message = f"Stage '{stage_id}' failed: {stage_result.error_message}"
                     logger.warning(
                         "Fail-fast triggered; halting subsequent stages",
                         extra={
@@ -212,7 +217,9 @@ class DEVDOCOrchestrator:
         execution_meta: dict[str, Any] = {
             "executed_stages": [s.stage_id for s in stage_results],
             "total_stages_in_workflow": len(self.workflow.stage_ids),
-            "stages_completed": len([s for s in stage_results if s.status == ExecutionStatus.SUCCESS]),
+            "stages_completed": len(
+                [s for s in stage_results if s.status == ExecutionStatus.SUCCESS]
+            ),
             "failure_policy": self.workflow.failure_policy.value,
         }
 

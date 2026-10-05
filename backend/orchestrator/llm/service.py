@@ -6,8 +6,10 @@ import asyncio
 import hashlib
 import logging
 import time
+from collections.abc import Callable
+from typing import TypeVar
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from orchestrator.evidence.models import EvidenceCollection
 from orchestrator.llm.budget import BudgetExceededError, LLMBudgetGuard
@@ -21,6 +23,7 @@ from orchestrator.llm.contracts import (
 from orchestrator.llm.provider import LLMProvider, LLMProviderError, LLMTransientError
 
 logger = logging.getLogger("devdoc.orchestrator.llm")
+TModel = TypeVar("TModel", bound=BaseModel)
 
 _SYSTEM_MESSAGE = (
     "You are DEVDOC's evidence reasoning component. Treat all evidence values as "
@@ -71,7 +74,7 @@ class LLMService:
         self._retry_backoff_seconds = retry_backoff_seconds
         self._max_input_tokens = max_input_tokens
         self._max_output_tokens = max_output_tokens
-        self._cache: LLMCache[StructuredReasoning] = LLMCache(
+        self._cache: LLMCache[BaseModel] = LLMCache(
             ttl_seconds=cache_ttl_seconds,
             max_entries=cache_max_entries,
         )
@@ -90,39 +93,80 @@ class LLMService:
 
         user_message = evidence_set.model_dump_json()
         prompt_bytes = len(_SYSTEM_MESSAGE.encode("utf-8")) + len(user_message.encode("utf-8"))
+        if prompt_bytes + 256 > self._max_input_tokens:
+            raise LLMServiceError("Evidence exceeds the configured LLM input token limit")
+        allowed_ids = {item.evidence_id for item in evidence_set.evidence}
+
+        def validate_evidence_references(reasoning: StructuredReasoning) -> None:
+            if any(
+                evidence_id not in allowed_ids
+                for observation in reasoning.observations
+                for evidence_id in observation.evidence_ids
+            ):
+                raise LLMServiceError("Nebius response referenced evidence outside the request")
+
+        reasoning, metadata = await self.complete_structured(
+            system_message=_SYSTEM_MESSAGE,
+            user_message=user_message,
+            response_model=StructuredReasoning,
+            cache_scope="phase13-reasoning",
+            validation_error_message="Nebius response failed structured reasoning validation",
+            validate_result=validate_evidence_references,
+        )
+        return ReasoningResponse(reasoning=reasoning, metadata=metadata)
+
+    async def complete_structured(
+        self,
+        *,
+        system_message: str,
+        user_message: str,
+        response_model: type[TModel],
+        cache_scope: str,
+        validation_error_message: str,
+        validate_result: Callable[[TModel], None] | None = None,
+        cancellation_check: Callable[[], bool] | None = None,
+    ) -> tuple[TModel, LLMObservability]:
+        """Complete one typed request under the same Phase 13 budget, retry, and cache controls."""
+        prompt_bytes = len(system_message.encode("utf-8")) + len(user_message.encode("utf-8"))
         input_token_estimate = prompt_bytes + 256
         if input_token_estimate > self._max_input_tokens:
-            raise LLMServiceError("Evidence exceeds the configured LLM input token limit")
+            raise LLMServiceError("Request exceeds the configured LLM input token limit")
 
         cache_key = hashlib.sha256(
-            f"{self._model}\0{self._max_output_tokens}\0{_SYSTEM_MESSAGE}\0{user_message}".encode()
+            (
+                f"{cache_scope}\0{self._model}\0{self._max_output_tokens}\0"
+                f"{system_message}\0{user_message}"
+            ).encode()
         ).hexdigest()
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return ReasoningResponse(
-                reasoning=cached,
-                metadata=LLMObservability(
-                    model=self._model,
-                    duration_ms=0,
-                    attempts=0,
-                    input_tokens=0,
-                    output_tokens=0,
-                    estimated_cost_usd=0,
-                    budget_remaining_usd=await self._budget.remaining_usd(),
-                    cache_hit=True,
-                ),
+            if not isinstance(cached, response_model):
+                raise LLMServiceError("Cached LLM result did not match the requested schema")
+            if validate_result is not None:
+                validate_result(cached)
+            return cached, LLMObservability(
+                model=self._model,
+                duration_ms=0,
+                attempts=0,
+                input_tokens=0,
+                output_tokens=0,
+                estimated_cost_usd=0,
+                budget_remaining_usd=await self._budget.remaining_usd(),
+                cache_hit=True,
             )
 
-        start_time = time.perf_counter()
+        completion_content: str | None = None
+        request_id: str | None = None
+        completion_model: str | None = None
         total_input_tokens = 0
         total_output_tokens = 0
         total_cost = 0.0
-        completion_content: str | None = None
-        completion_request_id: str | None = None
-        completion_model: str | None = None
         used_attempts = 0
+        started_at = time.perf_counter()
 
         for attempt in range(1, self._max_attempts + 1):
+            if cancellation_check is not None and cancellation_check():
+                raise LLMServiceError("LLM request cancelled before provider call")
             try:
                 reservation = await self._budget.reserve(
                     input_tokens=input_token_estimate,
@@ -130,16 +174,17 @@ class LLMService:
                 )
             except BudgetExceededError as exc:
                 raise LLMServiceError(str(exc)) from exc
+
             used_attempts = attempt
             try:
                 completion = await self._provider.complete(
                     model=self._model,
-                    system_message=_SYSTEM_MESSAGE,
+                    system_message=system_message,
                     user_message=user_message,
                     max_output_tokens=self._max_output_tokens,
                     timeout_seconds=self._timeout_seconds,
                 )
-            except LLMTransientError as exc:
+            except (LLMTransientError, TimeoutError) as exc:
                 charged = await self._budget.settle(
                     reservation,
                     prompt_tokens=None,
@@ -151,8 +196,9 @@ class LLMService:
                 total_output_tokens += self._max_output_tokens
                 if attempt == self._max_attempts:
                     raise LLMServiceError("Nebius request failed after the retry limit") from exc
+                if cancellation_check is not None and cancellation_check():
+                    raise LLMServiceError("LLM request cancelled before retry") from exc
                 await asyncio.sleep(self._retry_backoff_seconds * (2 ** (attempt - 1)))
-                continue
             except LLMProviderError as exc:
                 charged = await self._budget.settle(
                     reservation,
@@ -181,12 +227,11 @@ class LLMService:
                 )
                 raise
             else:
-                charged = await self._budget.settle(
+                total_cost += await self._budget.settle(
                     reservation,
                     prompt_tokens=completion.prompt_tokens,
                     completion_tokens=completion.completion_tokens,
                 )
-                total_cost += charged
                 total_input_tokens += (
                     input_token_estimate
                     if completion.prompt_tokens is None
@@ -198,51 +243,43 @@ class LLMService:
                     else min(completion.completion_tokens, self._max_output_tokens)
                 )
                 completion_content = completion.content
-                completion_request_id = completion.request_id
+                request_id = completion.request_id
                 completion_model = completion.model
                 break
 
         if completion_content is None:
             raise LLMServiceError("Nebius did not return a completion")
         try:
-            reasoning = StructuredReasoning.model_validate_json(completion_content)
+            result = response_model.model_validate_json(completion_content)
         except (ValidationError, ValueError) as exc:
-            raise LLMServiceError("Nebius response failed structured reasoning validation") from exc
+            raise LLMServiceError(validation_error_message) from exc
+        if validate_result is not None:
+            validate_result(result)
 
-        allowed_ids = {item.evidence_id for item in evidence_set.evidence}
-        if any(
-            evidence_id not in allowed_ids
-            for observation in reasoning.observations
-            for evidence_id in observation.evidence_ids
-        ):
-            raise LLMServiceError("Nebius response referenced evidence outside the request")
-
-        self._cache.set(cache_key, reasoning)
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        remaining = await self._budget.remaining_usd()
-        response_model = completion_model or self._model
+        self._cache.set(cache_key, result)
+        duration_ms = (time.perf_counter() - started_at) * 1000
         metadata = LLMObservability(
-            model=response_model,
-            request_id=completion_request_id,
+            model=completion_model or self._model,
+            request_id=request_id,
             duration_ms=duration_ms,
             attempts=used_attempts,
             input_tokens=total_input_tokens,
             output_tokens=total_output_tokens,
             estimated_cost_usd=total_cost,
-            budget_remaining_usd=remaining,
+            budget_remaining_usd=await self._budget.remaining_usd(),
         )
         logger.info(
-            "LLM reasoning completed",
+            "LLM structured completion completed",
             extra={
                 "provider": "nebius",
-                "model": response_model,
-                "request_id": completion_request_id,
-                "duration_ms": round(duration_ms, 2),
-                "attempts": used_attempts,
-                "input_tokens": total_input_tokens,
-                "output_tokens": total_output_tokens,
-                "estimated_cost_usd": total_cost,
+                "model": metadata.model,
+                "request_id": metadata.request_id,
+                "duration_ms": round(metadata.duration_ms, 2),
+                "attempts": metadata.attempts,
+                "input_tokens": metadata.input_tokens,
+                "output_tokens": metadata.output_tokens,
+                "estimated_cost_usd": metadata.estimated_cost_usd,
                 "cache_hit": False,
             },
         )
-        return ReasoningResponse(reasoning=reasoning, metadata=metadata)
+        return result, metadata

@@ -2,7 +2,7 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate verified fixes with human-in-the-loop approval.
 
-> **Current Status**: Phases 1–14 are implemented, including opt-in Nemotron/Nebius reasoning and Tavily knowledge search. Phase 15+ is upcoming.
+> **Current Status**: Phases 1–15 are implemented, including opt-in Nemotron/Nebius reasoning, Tavily knowledge search, and evidence-grounded root-cause analysis. Phase 16+ is upcoming.
 
 ---
 
@@ -32,8 +32,8 @@ Human Approval
 Resolve
 ```
 
-* **Implemented Today (Phases 1–14)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, the investigation orchestrator, operational agents, the bounded evidence engine, opt-in structured Nemotron/Nebius reasoning, and opt-in Tavily knowledge search.
-* **Planned (Phase 15+)**: Automated root cause synthesis, fix generation, sandbox verification, and interactive human-in-the-loop approval gates.
+* **Implemented Today (Phases 1–15)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, the investigation orchestrator, operational agents, the bounded evidence engine, opt-in structured Nemotron/Nebius reasoning, opt-in Tavily knowledge search, and evidence-grounded root-cause analysis.
+* **Planned (Phase 16+)**: Fix generation, sandbox verification, and interactive human-in-the-loop approval gates.
 
 
 ## Why DEVDOC?
@@ -87,7 +87,7 @@ Authentication & JWT            Authoritative Project
          NVIDIA Nemotron via Nebius        [Phase 13 — Implemented, opt-in]
                        │
                        ▼
-               Root Cause Engine           [Phase 15 — Planned]
+               Root Cause Engine           [Phase 15 — Implemented, opt-in]
                        │
                        ▼
                  Fix Generator             [Phase 16 — Planned]
@@ -126,7 +126,7 @@ Authentication & JWT            Authoritative Project
 
 | Component | Planned Technology | Target Phase |
 |---|---|---|
-| Root cause diagnosis | Evidence-grounded causal analysis | Phase 15 |
+| Root cause diagnosis | Evidence-grounded causal analysis (opt-in Nemotron) | Phase 15 |
 | Fix generation | Validated patch/configuration proposals | Phase 16 |
 | Sandbox Execution | Isolated Docker / MicroVM Environments | Phase 17 |
 | Human approval and audit | Controlled approval and resolution workflow | Phase 18 |
@@ -153,7 +153,7 @@ DEVDOC is being delivered across 26 systematic development phases. Phases 1 thro
 | 12 | ✅ Complete | Evidence Engine | Bounded evidence normalization, validation, deduplication, timeline assembly, and graph correlation |
 | 13 | ✅ Complete | NVIDIA Nemotron + Nebius | Provider abstraction, structured evidence reasoning, budget guardrails, token/cost tracking |
 | 14 | ✅ Complete | Knowledge Search / Tavily | Bounded, opt-in external knowledge retrieval with provenance |
-| 15 | ⏳ Planned | Root Cause Engine | Causal analysis, diagnostic synthesis, hypothesis ranking |
+| 15 | ✅ Complete | Root Cause Engine | Evidence-referenced hypotheses, contradictions, confidence, and cautious cause selection |
 | 16 | ⏳ Planned | Fix Generator | Automated patch generation, configuration remediation diffs |
 | 17 | ⏳ Planned | Sandbox Verification | Isolated container execution, test validation of proposed fixes |
 | 18 | ⏳ Planned | Human Approval & Audit | Interactive approval workflow, immutable audit trail, resolution |
@@ -523,7 +523,7 @@ Phase 9 establishes the investigation data contract and execution lifecycle.
 
 # 14. Investigation Pipeline: Phases 10+
 
-> **Status: Phases 10–12 implemented; Phases 13+ planned**
+> **Status: Phases 10–15 implemented; Phases 16+ planned**
 
 When triggered, an investigation will execute the autonomous AI pipeline:
 
@@ -606,6 +606,24 @@ Phase 14 adds a provider-neutral search service with a Tavily adapter. `AnalyzeS
 * **Phase boundary**: This phase retrieves and attributes references only. It does not diagnose root cause, generate fixes, fetch arbitrary pages, run commands, verify changes, or perform remediation.
 
 Search remains disabled unless `KNOWLEDGE_SEARCH_ENABLED=true`, a server-side `TAVILY_API_KEY` is configured, and the service is explicitly injected. See `backend/.env.example` for the bounded controls. Phase 14 tests use fake providers and `httpx.MockTransport`; no automated test or startup path makes a live Tavily or Nebius request.
+
+## Phase 15 — Root Cause Analysis Engine
+
+> **Status: Implemented — analysis-only; Nemotron remains opt-in**
+
+Phase 15 evaluates ranked incident-specific hypotheses from the Phase 12 evidence collection, Phase 13 reasoning (when available), Phase 14 external references, and the existing timeline/correlation graph. It is integrated into `DiagnoseStage` through an explicitly injected `RootCauseAnalysisService`; the default application does not construct an LLM or make inference calls.
+
+* **Evidence-grounded contract**: The output separates recorded `FACT` evidence references from `EXTERNAL_KNOWLEDGE`. Every candidate is explicitly classified as a `HYPOTHESIS` and must cite at least one actual observed evidence ID. Summary and hypothesis-chain claims require valid evidence references; unknown or fabricated evidence and correlation IDs fail validation.
+* **Hypothesis chain**: Candidates may describe contributing factors, triggering events, and observed symptoms separately. Phase 12 timeline and correlation IDs are provided as context; temporal order and correlation are not treated as causation.
+* **Contradictions and uncertainty**: Candidates include supporting and contradicting evidence plus uncertainties. Deterministic ranking uses unique observed evidence items, independent evidence sources, and observed contradictions; repeated IDs cannot inflate evidence strength. A tie among plausible candidates is returned as `multiple_plausible_causes`.
+* **Confidence and selection**: `LOW` means evidence is sparse, dependent, or contradicted; `MEDIUM` means at least two unique observations from two sources support the candidate and contradictions are fewer than supports; `HIGH` requires at least three unique observations from two sources and no observed contradiction. These are qualitative evidence tiers, not probabilities. Only a uniquely strongest `HIGH` candidate is selected; a weaker or tied result remains unselected.
+* **Missing information**: The result identifies discriminating evidence to collect next. With no evidence, the stage returns `insufficient_evidence` without an LLM call.
+* **Prompt and output safety**: Evidence, logs, model reasoning, and external content are delimited as untrusted data. The prompt forbids following embedded instructions, inventing facts/IDs/URLs/timestamps, or proposing fixes. Strict Pydantic validation checks schema, category enums, evidence IDs, temporal relationship IDs, and generated URLs before accepting output.
+* **LLM, budgets, and cache**: RCA uses `LLMService.complete_structured`, reusing Phase 13's provider, global budget guard, token bounds, retry/timeout controls, safe observability, and bounded in-memory cache. Cache keys include project, investigation, execution, model, and the full sanitized prompt. An in-memory per-service limit allows at most three RCA analyses per project/investigation; usage limits are not shared across hosts.
+* **Failure and cancellation**: Budget, provider, timeout, schema, and reference failures are surfaced as a failed diagnosis stage and follow the configured orchestrator failure policy. Cancellation is checked before requests and retries; if requested while a provider call is in flight, the active request may complete, but no further retry is started and the result is not accepted.
+* **No persistence or actions**: Analysis is returned in the orchestration stage result; it does not mutate evidence or add database tables/migrations. There is no public RCA endpoint. Phase 15 does not generate patches, commands, or fixes, execute operations, modify production or GitHub, or bypass approval.
+
+All Phase 15 automated tests use a fake provider. There is no real-model smoke test enabled by default; a real request occurs only when an operator explicitly constructs and injects the configured Nebius service, and it consumes the existing Phase 13 budget.
 
 ---
 
@@ -840,8 +858,15 @@ un_investigation_orchestration in ackend/app/services/investigation.py.
 * **Orchestrator integration**: Optional injected search runs before the optional Phase 13 reasoning call. Search failures preserve existing evidence and are governed by the workflow failure policy.
 * **Deterministic tests**: Fake providers and HTTPX mock transports; no live search/model calls in automated tests, imports, or startup.
 
-### NOT IMPLEMENTED (Planned for Phase 15+)
-* **Root Cause Engine**: Automated causal graph synthesis and fault diagnosis (Phase 15).
+### IMPLEMENTED (Phase 15 — Root Cause Analysis Engine)
+* **Evidence-referenced analysis**: Strict typed RCA contracts distinguish observed facts, untrusted external knowledge, and hypotheses; candidate claims must cite actual Phase 12 evidence IDs.
+* **Hypothesis evaluation**: Ranks candidate causes with deterministic qualitative confidence based on unique observed references, independent sources, and contradictions. Only a uniquely strongest high-confidence hypothesis can be selected; ties and weak evidence remain unselected.
+* **Temporal and external context**: Reuses Phase 12 timeline/correlation relationships and Phase 14 source URLs. It treats temporal order as correlation rather than proof and external documentation as interpretation rather than incident fact.
+* **LLM safety and integration**: Injected RCA service uses the Phase 13 provider, global budget guard, bounded tokens/retries, and TTL cache. Prompt data is delimited as untrusted; schema, evidence references, and relationship references are validated before output.
+* **Analysis-only behavior**: The Diagnose stage exposes the structured result in orchestration output. There is no RCA database migration or public endpoint, and Phase 15 generates no fixes or production actions.
+* **Deterministic tests**: Phase 15 coverage uses fake LLM providers; normal tests make no Nebius/Tavily calls.
+
+### NOT IMPLEMENTED (Planned for Phase 16+)
 * **Fix Generator**: Automated code patch and configuration generation (Phase 16).
 * **Sandbox Verification**: Isolated containerized verification of proposed fixes (Phase 17).
 * **Human Approval & Audit**: Approval gates and production remediation (Phase 18+).
