@@ -80,13 +80,14 @@ class StageResult:
     started_at: datetime | None = None
     completed_at: datetime | None = None
     duration_ms: float = 0.0
+    evidence_collection: dict[str, Any] | None = None
 
     @property
     def is_successful(self) -> bool:
         return self.status == ExecutionStatus.SUCCESS
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "stage_id": self.stage_id,
             "status": self.status.value,
             "output_metadata": self.output_metadata,
@@ -97,6 +98,9 @@ class StageResult:
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "duration_ms": self.duration_ms,
         }
+        if self.evidence_collection is not None:
+            result["evidence_collection"] = self.evidence_collection
+        return result
 
 
 @dataclass

@@ -19,6 +19,7 @@ from orchestrator.contracts.execution import FailurePolicy, WorkflowDefinition
 from orchestrator.contracts.stage import BaseStage, StageIdentifier
 from orchestrator.core.context import InvestigationContext
 from orchestrator.core.result import AgentResult, ExecutionStatus, StageResult
+from orchestrator.evidence.engine import EvidenceEngine
 from orchestrator.stages.registry import StageRegistry
 
 
@@ -79,6 +80,7 @@ class CollectEvidenceStage(BaseStage):
 
     def __init__(self, agents: list[BaseAgent] | None = None) -> None:
         self.agents: list[BaseAgent] = agents or []
+        self.evidence_engine = EvidenceEngine()
 
     @property
     def stage_id(self) -> str:
@@ -138,7 +140,7 @@ class CollectEvidenceStage(BaseStage):
                 warnings.extend(res.warnings)
 
         output_meta: dict[str, Any] = {
-            "evidence_collection_status": "completed" if self.agents else "ready_for_phase11_agents",
+            "evidence_collection_status": "completed" if self.agents else "completed_without_agents",
             "evidence_reference_count": len(context.collected_evidence_references),
             "agents_executed": [a.agent_id for a in agent_results],
             "agents_count": len(agent_results),
@@ -146,6 +148,15 @@ class CollectEvidenceStage(BaseStage):
                 [a for a in agent_results if a.status == ExecutionStatus.SUCCESS]
             ),
         }
+        evidence_collection = self.evidence_engine.process(agent_results, context)
+        output_meta["evidence_item_count"] = evidence_collection.summary.total_evidence_count
+        output_meta["evidence_timeline_count"] = len(evidence_collection.timeline)
+        output_meta["evidence_correlation_count"] = len(evidence_collection.correlations)
+        output_meta["evidence_duplicate_count"] = evidence_collection.summary.duplicate_count
+        for warning in evidence_collection.warnings:
+            context.add_warning(warning)
+            if warning not in warnings:
+                warnings.append(warning)
         context.record_stage_complete(self.stage_id)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
@@ -159,6 +170,7 @@ class CollectEvidenceStage(BaseStage):
             agent_results=agent_results,
             warnings=warnings,
             error_message=err_msg,
+            evidence_collection=evidence_collection.to_dict(),
             started_at=started_at,
             completed_at=datetime.now(UTC),
             duration_ms=duration_ms,
@@ -403,4 +415,3 @@ def create_operational_stage_registry(
     registry.register(VerifyStage())
     registry.register(CompleteStage())
     return registry
-

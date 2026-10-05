@@ -38,5 +38,18 @@ app.add_middleware(
 
 app.include_router(api_router)
 
+
+@app.get("/", tags=["Root"], summary="API root")
+async def root() -> dict[str, str]:
+    """Return a friendly landing payload for the API root."""
+    return {
+        "service": settings.app_name,
+        "status": "ok",
+        "docs_url": "/docs",
+        "health_url": "/api/v1/health",
+        "ready_url": "/api/v1/ready",
+    }
+
+
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)

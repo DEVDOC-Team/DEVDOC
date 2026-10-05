@@ -43,6 +43,7 @@ class EvidenceLimitsConfig:
 
     max_evidence_items: int = 500
     max_payload_bytes: int = 1_000_000  # 1 MB max serialized payload per evidence item
+    max_collection_bytes: int = 10_000_000  # 10 MB max normalized evidence collection
     max_string_length: int = 4096  # Max length for string fields before explicit truncation
     max_timeline_entries: int = 500
     max_correlation_relationships: int = 1000
@@ -57,6 +58,10 @@ class EvidenceLimitsConfig:
             raise ValueError(f"max_evidence_items must be positive, got {self.max_evidence_items}")
         if self.max_payload_bytes <= 0:
             raise ValueError(f"max_payload_bytes must be positive, got {self.max_payload_bytes}")
+        if self.max_collection_bytes <= 0:
+            raise ValueError(
+                f"max_collection_bytes must be positive, got {self.max_collection_bytes}"
+            )
         if self.max_string_length <= 0:
             raise ValueError(f"max_string_length must be positive, got {self.max_string_length}")
         if self.max_timeline_entries <= 0:

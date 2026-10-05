@@ -40,28 +40,62 @@ class EvidenceNormalizer:
     def _truncate_string(self, text: str, field_name: str, truncated_fields: list[str]) -> str:
         """Truncate strings exceeding max length, appending an explicit [TRUNCATED] marker."""
         if len(text) > self.limits.max_string_length:
-            truncated_fields.append(field_name)
-            return text[: self.limits.max_string_length - 11] + "[TRUNCATED]"
+            if field_name not in truncated_fields:
+                truncated_fields.append(field_name)
+            marker = "[TRUNCATED]"
+            if self.limits.max_string_length <= len(marker):
+                return marker[: self.limits.max_string_length]
+            return text[: self.limits.max_string_length - len(marker)] + marker
         return text
 
     def _sanitize_and_bound_data(
         self, data: dict[str, Any], truncated_fields: list[str]
     ) -> dict[str, Any]:
         """Deeply sanitize credentials and truncate oversized text fields in payloads."""
-        sanitized = sanitize_data(data)
-
-        def _bound_recursive(obj: Any, path: str) -> Any:
+        def _bound_recursive(obj: Any, path: str, depth: int = 0) -> Any:
+            if depth >= 12:
+                if path not in truncated_fields:
+                    truncated_fields.append(path)
+                return "[TRUNCATED]"
             if isinstance(obj, str):
                 return self._truncate_string(obj, path, truncated_fields)
             if isinstance(obj, dict):
-                return {k: _bound_recursive(v, f"{path}.{k}") for k, v in obj.items()}
+                bounded_entries: list[tuple[Any, Any]] = []
+                truncated = False
+                for index, entry in enumerate(obj.items()):
+                    if index >= self.limits.max_source_records_per_agent:
+                        truncated = True
+                        break
+                    bounded_entries.append(entry)
+                if truncated and path not in truncated_fields:
+                    truncated_fields.append(path)
+                bounded_dict = {
+                    k: _bound_recursive(v, f"{path}.{k}", depth + 1)
+                    for k, v in bounded_entries
+                }
+                if truncated:
+                    marker_key = "_devdoc_truncated_fields"
+                    if marker_key not in bounded_dict:
+                        bounded_dict[marker_key] = [path]
+                return bounded_dict
             if isinstance(obj, list):
-                return [_bound_recursive(item, f"{path}[{i}]") for i, item in enumerate(obj)]
+                bounded_items = obj[: self.limits.max_source_records_per_agent]
+                if len(obj) > len(bounded_items) and path not in truncated_fields:
+                    truncated_fields.append(path)
+                bounded_list = [
+                    _bound_recursive(item, f"{path}[{i}]", depth + 1)
+                    for i, item in enumerate(bounded_items)
+                ]
+                if len(obj) > len(bounded_items):
+                    bounded_list.append("[TRUNCATED]")
+                return bounded_list
             return obj
 
+        bounded_data = _bound_recursive(data, "data")
+        sanitized = sanitize_data(bounded_data)
         if isinstance(sanitized, dict):
-            return _bound_recursive(sanitized, "data")
-        return {"value": _bound_recursive(sanitized, "data")}
+            return sanitized
+        return {"value": sanitized}
 
     def normalize_agent_result(
         self,
@@ -101,10 +135,7 @@ class EvidenceNormalizer:
         if not repo_name:
             owner = repo_meta.get("owner") or result.output_metadata.get("owner")
             name = repo_meta.get("name") or result.output_metadata.get("repo")
-            if owner and name:
-                repo_name = f"{owner}/{name}"
-            else:
-                repo_name = "unknown/repository"
+            repo_name = f"{owner}/{name}" if owner and name else "unknown/repository"
 
         common_correlation = [f"repo:{repo_name}"]
 

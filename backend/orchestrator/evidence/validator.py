@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
 from orchestrator.evidence.config import EvidenceLimitsConfig
 from orchestrator.evidence.models import (
@@ -69,14 +68,16 @@ class EvidenceValidator:
 
         # 4. Check payload size
         try:
-            serialized_len = len(json.dumps(evidence.data, default=str))
+            serialized_len = len(
+                json.dumps(evidence.data, default=str, ensure_ascii=False).encode("utf-8")
+            )
             if serialized_len > self.limits.max_payload_bytes:
                 warnings.append(
                     f"Evidence payload size ({serialized_len} bytes) exceeds maximum "
                     f"limit ({self.limits.max_payload_bytes} bytes)"
                 )
                 is_invalid = True
-        except Exception as json_err:
+        except (TypeError, ValueError, RecursionError) as json_err:
             warnings.append(f"Evidence data could not be serialized to JSON: {json_err}")
             is_invalid = True
 

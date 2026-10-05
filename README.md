@@ -2,7 +2,7 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate verified fixes with human-in-the-loop approval.
 
-> **Current Status**: Phase 1–11 backend foundation, orchestrator, and operational agents complete. Phase 12+ upcoming.
+> **Current Status**: Phases 1–12 are implemented, including the backend foundation, orchestrator, operational agents, and evidence engine. Phase 13+ is upcoming.
 
 ---
 
@@ -32,8 +32,8 @@ Human Approval
 Resolve
 ```
 
-* **Implemented Today (Phases 1–11)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, investigation API contract, the foundational AI Investigation Orchestrator (`backend/orchestrator`), and Operational Investigation Agents (`GitHubAgent`, `DockerAgent`, `MonitoringAgent`).
-* **Planned (Phase 12+)**: Automated multi-modal evidence engine and timeline correlation, Nemotron/Nebius LLM reasoning, Tavily web search, automated root cause synthesis, sandbox fix verification, and interactive human-in-the-loop approval gates.
+* **Implemented Today (Phases 1–12)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, investigation API contract, the foundational AI Investigation Orchestrator (`backend/orchestrator`), operational agents (`GitHubAgent`, `DockerAgent`, `MonitoringAgent`), and their evidence normalization, timeline, and correlation pipeline.
+* **Planned (Phase 13+)**: Nemotron/Nebius LLM reasoning, Tavily web search, automated root cause synthesis, sandbox fix verification, and interactive human-in-the-loop approval gates.
 
 
 ## Why DEVDOC?
@@ -78,7 +78,7 @@ Authentication & JWT            Authoritative Project
        │               │               │
        └───────────────┬───────────────┘
                        ▼
-                Evidence Engine            [Phase 12 — Planned]
+                Evidence Engine            [Phase 12 — Implemented]
                        │
                        ▼
          NVIDIA Nemotron via Nebius        [Phase 13 — Planned]
@@ -149,9 +149,9 @@ DEVDOC is being delivered across 26 systematic development phases. Phases 1 thro
 | 7 | ✅ Complete | GitHub Integration | GitHub OAuth, signed CSRF state, repository attachment, code/commit/PR inspection |
 | 8 | ✅ Complete | Incident Management | Operational incident model, controlled 5-state lifecycle, bounded pagination |
 | 9 | ✅ Complete | Investigation API | Investigation data contract, finite state machine, dual boundary validation |
-| 10 | 🔵 Next | DEVDOC Orchestrator | Autonomous agent orchestrator package, workflow coordination |
-| 11 | ⏳ Planned | Investigation Agents | Specialized GitHub, Docker, and Monitoring inspection agents |
-| 12 | ⏳ Planned | Evidence Engine | Structured evidence collection, normalization, and timeline assembly |
+| 10 | ✅ Complete | DEVDOC Orchestrator | Autonomous agent orchestrator package, workflow coordination |
+| 11 | ✅ Complete | Investigation Agents | Specialized GitHub, Docker, and Monitoring inspection agents |
+| 12 | ✅ Complete | Evidence Engine | Bounded evidence normalization, validation, deduplication, timeline assembly, and graph correlation |
 | 13 | ⏳ Planned | NVIDIA Nemotron + Nebius | LLM client integration, budget guardrails, token/cost optimization |
 | 14 | ⏳ Planned | Knowledge Search / Tavily | External documentation, CVE, and error solution retrieval |
 | 15 | ⏳ Planned | Root Cause Engine | Causal analysis, diagnostic synthesis, hypothesis ranking |
@@ -518,9 +518,9 @@ Phase 9 establishes the investigation data contract and execution lifecycle.
 
 ---
 
-# 14. Future AI Investigation Pipeline
+# 14. Investigation Pipeline: Phases 10+
 
-> **Status: Planned — Phase 10+**
+> **Status: Phases 10–12 implemented; Phases 13+ planned**
 
 When triggered, an investigation will execute the autonomous AI pipeline:
 
@@ -745,7 +745,7 @@ Configure `.env` locally using `backend/.env.example` as a template:
 
 # 23. Current Limitations & Phase Status
 
-As of Phase 11 completion, the foundational orchestration framework and operational investigation agents are established:
+As of Phase 12 completion, the orchestration framework, operational investigation agents, and bounded evidence processing pipeline are established:
 
 ### IMPLEMENTED (Phase 10 — DEVDOC Orchestrator)
 * **Orchestration Engine**: Central DEVDOCOrchestrator coordinating sequential stage execution, failure handling, and execution tracing (ackend/orchestrator/core/orchestrator.py).
@@ -765,8 +765,15 @@ un_investigation_orchestration in ackend/app/services/investigation.py.
 * **Typed Agent Results**: Extended AgentResult contract with investigation_id, execution_id, source, data, warnings, errors, and collected_at (100% backward compatible with Phase 10).
 * **Orchestrator Stage Integration**: CollectEvidenceStage dynamically executes all injected operational agents, propagating sanitized data and recording typed results into InvestigationContext (ackend/orchestrator/stages/investigation.py).
 
-### NOT IMPLEMENTED (Planned for Future Phases)
-* **Evidence Engine**: Automated multi-modal evidence collection, timeline synthesis, and evidence graph correlation (Phase 12).
+### IMPLEMENTED (Phase 12 — Evidence Engine)
+* **Multi-modal normalization**: Converts GitHub repository/commit/PR/issue/workflow/file results, Docker container/state/log results, monitoring health/metric/alert results, and generic agent payloads into typed evidence records.
+* **Data integrity and safety**: Normalizes timestamps to UTC, records timestamp provenance, sanitizes secrets in payload and display text, validates identifiers and payload size, bounds nested input, and records quality warnings.
+* **Deduplication and summaries**: Applies stable provider identifiers or canonical content hashes and summarizes counts, time bounds, duplicate counts, data-quality failures, and source/type groups.
+* **Timeline and evidence graph**: Produces a stable chronological timeline and explicit shared-identifier / temporal-proximity edges. Correlation links are informational and do not imply causality.
+* **Orchestrator integration**: `CollectEvidenceStage` processes agent results and returns the bounded serialized evidence collection alongside collection summary counts.
+* **Resource guardrails**: Configurable limits cap agent/evidence count, per-item and aggregate payload bytes, field length, source records, timeline entries, graph edges, and correlation windows.
+
+### NOT IMPLEMENTED (Planned for Phase 13+)
 * **Nemotron Reasoning via Nebius**: NVIDIA Nemotron LLM reasoning and token budget guarding (Phase 13).
 * **Knowledge Retrieval**: Web search and external incident knowledge lookup via Tavily (Phase 14).
 * **Root Cause Engine**: Automated causal graph synthesis and fault diagnosis (Phase 15).
