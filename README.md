@@ -2,7 +2,7 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate verified fixes with human-in-the-loop approval.
 
-> **Current Status**: Phases 1–13 are implemented, including the opt-in Nemotron/Nebius reasoning layer. Phase 14+ is upcoming.
+> **Current Status**: Phases 1–14 are implemented, including opt-in Nemotron/Nebius reasoning and Tavily knowledge search. Phase 15+ is upcoming.
 
 ---
 
@@ -32,8 +32,8 @@ Human Approval
 Resolve
 ```
 
-* **Implemented Today (Phases 1–13)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, the investigation orchestrator, operational agents, the bounded evidence engine, and opt-in structured Nemotron/Nebius reasoning.
-* **Planned (Phase 14+)**: Tavily web search, automated root cause synthesis, sandbox fix verification, and interactive human-in-the-loop approval gates.
+* **Implemented Today (Phases 1–14)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, the investigation orchestrator, operational agents, the bounded evidence engine, opt-in structured Nemotron/Nebius reasoning, and opt-in Tavily knowledge search.
+* **Planned (Phase 15+)**: Automated root cause synthesis, fix generation, sandbox verification, and interactive human-in-the-loop approval gates.
 
 
 ## Why DEVDOC?
@@ -81,10 +81,10 @@ Authentication & JWT            Authoritative Project
                 Evidence Engine            [Phase 12 — Implemented]
                        │
                        ▼
-         NVIDIA Nemotron via Nebius        [Phase 13 — Implemented, opt-in]
+            Tavily Knowledge Search        [Phase 14 — Implemented, opt-in]
                        │
                        ▼
-            Tavily Knowledge Search        [Phase 14 — Planned]
+         NVIDIA Nemotron via Nebius        [Phase 13 — Implemented, opt-in]
                        │
                        ▼
                Root Cause Engine           [Phase 15 — Planned]
@@ -122,15 +122,14 @@ Authentication & JWT            Authoritative Project
 | Code Quality & Linting | Ruff | High-performance static analysis and formatting |
 | Containerization | Docker | Reproducible containerized runtimes |
 
-### Planned Future Technologies (Phases 10+)
+### Future Technologies (Phases 15+)
 
 | Component | Planned Technology | Target Phase |
 |---|---|---|
-| AI Reasoning Model | NVIDIA Nemotron via Nebius Token API (opt-in) | Phase 13 |
-| Knowledge Search | Tavily API | Phase 14 |
-| Agent Orchestration | DEVDOC Custom Orchestrator Package | Phase 10 |
+| Root cause diagnosis | Evidence-grounded causal analysis | Phase 15 |
+| Fix generation | Validated patch/configuration proposals | Phase 16 |
 | Sandbox Execution | Isolated Docker / MicroVM Environments | Phase 17 |
-| Real-Time Observability | OpenTelemetry + Prometheus / Grafana | Phase 21 |
+| Human approval and audit | Controlled approval and resolution workflow | Phase 18 |
 
 ---
 
@@ -153,7 +152,7 @@ DEVDOC is being delivered across 26 systematic development phases. Phases 1 thro
 | 11 | ✅ Complete | Investigation Agents | Specialized GitHub, Docker, and Monitoring inspection agents |
 | 12 | ✅ Complete | Evidence Engine | Bounded evidence normalization, validation, deduplication, timeline assembly, and graph correlation |
 | 13 | ✅ Complete | NVIDIA Nemotron + Nebius | Provider abstraction, structured evidence reasoning, budget guardrails, token/cost tracking |
-| 14 | ⏳ Planned | Knowledge Search / Tavily | External documentation, CVE, and error solution retrieval |
+| 14 | ✅ Complete | Knowledge Search / Tavily | Bounded, opt-in external knowledge retrieval with provenance |
 | 15 | ⏳ Planned | Root Cause Engine | Causal analysis, diagnostic synthesis, hypothesis ranking |
 | 16 | ⏳ Planned | Fix Generator | Automated patch generation, configuration remediation diffs |
 | 17 | ⏳ Planned | Sandbox Verification | Isolated container execution, test validation of proposed fixes |
@@ -573,9 +572,11 @@ Production Resolution [Phase 18]
 
 ---
 
-# 15. NVIDIA / Nebius Reasoning and Cost Control
+# 15. AI Reasoning and Knowledge Search
 
 > **Status: Implemented — Phase 13 (opt-in; no model call at startup or in tests)**
+
+## Phase 13 — NVIDIA / Nebius Reasoning and Cost Control
 
 Phase 13 consumes the normalized Phase 12 evidence collection and returns structured observations, explicit uncertainties, and follow-up questions. Its output is evidence-referenced and is not a root-cause diagnosis or a fix proposal.
 
@@ -590,6 +591,21 @@ Phase 13 consumes the normalized Phase 12 evidence collection and returns struct
 * **Secret handling**: The Nebius API key is a `SecretStr`, sent only in the server-side HTTPS Authorization header, and never included in logs or error messages.
 
 See `backend/.env.example` for the complete Phase 13 configuration. Do not enable live inference without setting current Nebius token prices and explicitly injecting the configured service.
+
+## Phase 14 — Knowledge Search / Tavily
+
+> **Status: Implemented — opt-in; automated tests use fake providers or HTTPX mock transports**
+
+Phase 14 adds a provider-neutral search service with a Tavily adapter. `AnalyzeStage` can search after evidence collection and before the optional LLM reasoning call. Search is only available when a `KnowledgeSearchService` is explicitly constructed and injected; the default application workflow does not construct it or make search calls.
+
+* **Bounded query and results**: Queries are built from allow-listed investigation/evidence fields, sanitized, and length-limited. Search depth, result count, response size, title/content/URL lengths, timeout, retries, concurrency, per-investigation usage, and cache capacity are configurable and validated.
+* **Safe provider boundary**: The adapter calls Tavily over HTTPS, keeps `TAVILY_API_KEY` server-side, requests neither generated answers nor raw page content, and never follows result URLs. Returned URLs are accepted only after HTTPS and host validation; private/local destinations and non-allow-listed domains (when configured) are rejected.
+* **Evidence provenance and trust**: Search results are normalized and merged through the Phase 12 Evidence Engine with provider, query, URL, retrieval timestamp, and an `untrusted_external` classification. These references are not observed incident facts. The Phase 13 reasoning prompt explicitly treats page text as untrusted and preserves source links.
+* **Failure behavior**: A search failure preserves collected evidence, marks analysis as failed, and skips LLM reasoning for that stage. The orchestrator's existing `FAIL_FAST` or `CONTINUE_ON_FAILURE` workflow policy controls downstream stages.
+* **Caching and process-local limits**: A bounded TTL cache is scoped to project, investigation, execution, and query. Usage limits and concurrency controls are held in memory per service instance; they are not durable or shared across hosts.
+* **Phase boundary**: This phase retrieves and attributes references only. It does not diagnose root cause, generate fixes, fetch arbitrary pages, run commands, verify changes, or perform remediation.
+
+Search remains disabled unless `KNOWLEDGE_SEARCH_ENABLED=true`, a server-side `TAVILY_API_KEY` is configured, and the service is explicitly injected. See `backend/.env.example` for the bounded controls. Phase 14 tests use fake providers and `httpx.MockTransport`; no automated test or startup path makes a live Tavily or Nebius request.
 
 ---
 
@@ -762,13 +778,26 @@ Configure `.env` locally using `backend/.env.example` as a template:
 | `LLM_OUTPUT_COST_PER_MILLION_USD` | Current Nebius output price for configured model | `0` (must be configured to enable) |
 | `LLM_CACHE_TTL_SECONDS` | Successful-result in-memory cache TTL | `900` |
 | `LLM_CACHE_MAX_ENTRIES` | Maximum successful-result cache entries | `128` |
-| `TAVILY_API_KEY` | *(Planned Phase 14)* Tavily search API key | `tavily-api-key-placeholder` 
+| `KNOWLEDGE_SEARCH_ENABLED` | Enable explicit Phase 14 knowledge-search service construction | `false` |
+| `TAVILY_API_KEY` | Server-side Tavily API key; leave empty unless search is explicitly enabled | *(empty)* |
+| `KNOWLEDGE_SEARCH_TIMEOUT_SECONDS` | Maximum Tavily request timeout | `8` |
+| `KNOWLEDGE_SEARCH_MAX_RESULTS` | Maximum results per search | `5` |
+| `KNOWLEDGE_SEARCH_MAX_QUERY_LENGTH` | Maximum sanitized search-query length | `400` |
+| `KNOWLEDGE_SEARCH_MAX_RESPONSE_BYTES` | Maximum response size accepted | `250000` |
+| `KNOWLEDGE_SEARCH_MAX_RETRIES` | Bounded retry count | `1` |
+| `KNOWLEDGE_SEARCH_DEPTH` | Tavily search depth | `basic` |
+| `KNOWLEDGE_SEARCH_PREFERRED_DOMAINS` | Comma-separated preferred bare domains | *(empty)* |
+| `KNOWLEDGE_SEARCH_ALLOWED_DOMAINS` | Optional strict comma-separated result-domain allow-list | *(empty)* |
+| `KNOWLEDGE_SEARCHES_PER_INVESTIGATION` | Maximum provider attempts per investigation window | `2` |
+| `KNOWLEDGE_SEARCH_MAX_CONCURRENT` | Maximum in-flight provider calls per service instance | `2` |
+| `KNOWLEDGE_SEARCH_CACHE_TTL_SECONDS` | Successful-result cache lifetime | `600` |
+| `KNOWLEDGE_SEARCH_CACHE_MAX_ENTRIES` | Maximum cached results | `128` |
 
 ---
 
 # 23. Current Limitations & Phase Status
 
-As of Phase 13 completion, the orchestration framework, operational investigation agents, bounded evidence processing pipeline, and opt-in LLM reasoning layer are established:
+As of Phase 14 completion, the orchestration framework, operational investigation agents, bounded evidence processing pipeline, and opt-in LLM reasoning and knowledge-search layers are established:
 
 ### IMPLEMENTED (Phase 10 — DEVDOC Orchestrator)
 * **Orchestration Engine**: Central DEVDOCOrchestrator coordinating sequential stage execution, failure handling, and execution tracing (ackend/orchestrator/core/orchestrator.py).
@@ -804,8 +833,14 @@ un_investigation_orchestration in ackend/app/services/investigation.py.
 * **Orchestrator integration**: `AnalyzeStage` receives the collected evidence and calls the provider only when an `LLMService` is explicitly injected. The default workflow remains offline.
 * **Deterministic tests**: All LLM service tests use fake providers or `httpx.MockTransport`; no automated test makes live model calls.
 
-### NOT IMPLEMENTED (Planned for Phase 14+)
-* **Knowledge Retrieval**: Web search and external incident knowledge lookup via Tavily (Phase 14).
+### IMPLEMENTED (Phase 14 — Knowledge Search / Tavily)
+* **Provider abstraction and Tavily adapter**: Async provider protocol, deterministic fake provider, HTTPS Tavily client, explicit secret handling, bounded response streaming, and no automatic result-URL fetching.
+* **Query and result safety**: Sanitized, bounded query construction; HTTPS/public-host and optional domain allow-list validation; response and field-size limits; retry, timeout, concurrency, usage, and cache controls.
+* **Evidence integration and provenance**: Normalizes external references through the Phase 12 Evidence Engine and stores URL, provider, query, retrieval time, and untrusted-source classification.
+* **Orchestrator integration**: Optional injected search runs before the optional Phase 13 reasoning call. Search failures preserve existing evidence and are governed by the workflow failure policy.
+* **Deterministic tests**: Fake providers and HTTPX mock transports; no live search/model calls in automated tests, imports, or startup.
+
+### NOT IMPLEMENTED (Planned for Phase 15+)
 * **Root Cause Engine**: Automated causal graph synthesis and fault diagnosis (Phase 15).
 * **Fix Generator**: Automated code patch and configuration generation (Phase 16).
 * **Sandbox Verification**: Isolated containerized verification of proposed fixes (Phase 17).

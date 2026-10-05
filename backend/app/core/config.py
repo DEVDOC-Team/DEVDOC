@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -115,6 +116,73 @@ class Settings(BaseSettings):
     llm_output_cost_per_million_usd: float = Field(default=0.0, ge=0)
     llm_cache_ttl_seconds: int = Field(default=900, ge=0, le=86_400)
     llm_cache_max_entries: int = Field(default=128, ge=0, le=10_000)
+
+    # ------------------------------------------------------------------ #
+    # External knowledge search — Phase 14 (disabled unless injected)
+    # ------------------------------------------------------------------ #
+    knowledge_search_enabled: bool = Field(default=False)
+    tavily_api_key: SecretStr = Field(default=SecretStr(""))
+    knowledge_search_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
+    knowledge_search_max_results: int = Field(default=5, ge=1, le=10)
+    knowledge_search_max_query_length: int = Field(default=400, ge=64, le=1_000)
+    knowledge_search_max_response_bytes: int = Field(
+        default=250_000,
+        ge=1_024,
+        le=2_000_000,
+    )
+    knowledge_search_max_retries: int = Field(default=1, ge=0, le=2)
+    knowledge_search_retry_backoff_seconds: float = Field(default=0.25, ge=0, le=2)
+    knowledge_search_depth: Literal["basic", "advanced", "fast", "ultra-fast"] = Field(
+        default="basic"
+    )
+    knowledge_search_preferred_domains: list[str] = Field(default_factory=list)
+    knowledge_search_allowed_domains: list[str] = Field(default_factory=list)
+    knowledge_searches_per_investigation: int = Field(default=2, ge=1, le=10)
+    knowledge_searches_per_request: int = Field(default=1, ge=1, le=3)
+    knowledge_search_max_concurrent: int = Field(default=2, ge=1, le=10)
+    knowledge_search_max_title_length: int = Field(default=512, ge=32, le=2_048)
+    knowledge_search_max_content_length: int = Field(default=2_000, ge=100, le=8_000)
+    knowledge_search_max_url_length: int = Field(default=2_048, ge=128, le=4_096)
+    knowledge_search_cache_ttl_seconds: int = Field(default=600, ge=0, le=86_400)
+    knowledge_search_cache_max_entries: int = Field(default=128, ge=0, le=10_000)
+    knowledge_search_usage_window_seconds: int = Field(default=86_400, ge=60, le=604_800)
+    knowledge_search_usage_max_entries: int = Field(default=10_000, ge=100, le=100_000)
+
+    @field_validator(
+        "knowledge_search_preferred_domains",
+        "knowledge_search_allowed_domains",
+        mode="before",
+    )
+    @classmethod
+    def parse_knowledge_search_domains(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_domains = [domain.strip() for domain in value.split(",") if domain.strip()]
+        elif isinstance(value, list):
+            raw_domains = [str(domain).strip() for domain in value if str(domain).strip()]
+        else:
+            raise ValueError("Knowledge search domains must be a list or comma-separated string")
+
+        normalized: list[str] = []
+        for domain in raw_domains:
+            candidate = domain.lower().rstrip(".")
+            if (
+                len(candidate) > 253
+                or "://" in candidate
+                or "/" in candidate
+                or not re.fullmatch(
+                    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
+                    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
+                    candidate,
+                )
+            ):
+                raise ValueError("Knowledge search domains must be bare DNS domain names")
+            if candidate not in normalized:
+                normalized.append(candidate)
+            if len(normalized) > 50:
+                raise ValueError("At most 50 knowledge search domains may be configured")
+        return normalized
 
     # ------------------------------------------------------------------ #
     # Convenience helpers

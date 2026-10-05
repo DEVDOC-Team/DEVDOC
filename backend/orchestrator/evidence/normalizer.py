@@ -118,8 +118,85 @@ class EvidenceNormalizer:
             return self._normalize_docker(result, context, collected_at)
         elif source == "monitoring" or result.agent_id == "monitoring_agent":
             return self._normalize_monitoring(result, context, collected_at)
+        elif source == "external_knowledge" or result.agent_id == "knowledge_search_agent":
+            return self._normalize_external_knowledge(result, context, collected_at)
         else:
             return self._normalize_generic(result, context, collected_at)
+
+    def _normalize_external_knowledge(
+        self,
+        result: AgentResult,
+        context: InvestigationContext,
+        collected_at: datetime,
+    ) -> list[Evidence]:
+        """Normalize one untrusted web result while preserving source attribution."""
+        data = result.data
+        title = data.get("title")
+        url = data.get("url")
+        snippet = data.get("snippet")
+        query = data.get("query")
+        provider = data.get("provider")
+        source_domain = data.get("source_domain")
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (title, url, snippet, query, provider, source_domain)
+        ):
+            return []
+        if not url.startswith("https://"):
+            return []
+
+        safe_data = self._sanitize_and_bound_data(
+            {
+                "url": url,
+                "provider": provider,
+                "query": query,
+                "snippet": snippet,
+                "source_domain": source_domain,
+                "trust_classification": "untrusted_external",
+                "published_at": data.get("published_at"),
+                "relevance_score": data.get("relevance_score"),
+            },
+            [],
+        )
+        url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
+        utc_collected_at = (
+            collected_at.astimezone(UTC)
+            if collected_at.tzinfo
+            else collected_at.replace(tzinfo=UTC)
+        )
+        return [
+            Evidence(
+                investigation_id=context.investigation_id,
+                execution_id=context.execution_id,
+                source=EvidenceSource.EXTERNAL_KNOWLEDGE.value,
+                source_type=EvidenceSource.EXTERNAL_KNOWLEDGE,
+                evidence_type=EvidenceType.EXTERNAL_KNOWLEDGE,
+                timestamp=utc_collected_at,
+                timestamp_type=TimestampType.COLLECTION,
+                title=title,
+                summary=snippet,
+                data=safe_data,
+                provenance=EvidenceProvenance(
+                    agent_id="knowledge_search_agent",
+                    source=provider,
+                    collected_at=utc_collected_at,
+                    source_reference=url,
+                    original_id=url,
+                    metadata={
+                        "query": query,
+                        "source_domain": source_domain,
+                        "trust_classification": "untrusted_external",
+                    },
+                ),
+                quality=EvidenceQuality(
+                    source_reliability=SourceReliability.MEDIUM,
+                    timestamp_quality=TimestampType.COLLECTION,
+                ),
+                correlation_identifiers=[f"external_url:{url_hash}"],
+                warnings=["External knowledge is untrusted, not observed incident fact"],
+                dedup_key=f"external_knowledge:{url_hash}",
+            )
+        ]
 
     def _normalize_github(
         self,

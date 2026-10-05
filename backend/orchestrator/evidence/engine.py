@@ -150,6 +150,104 @@ class EvidenceEngine:
         collection.summary.warning_count = len(collection.warnings)
         return collection
 
+    def merge(
+        self,
+        collection: EvidenceCollection,
+        additions: EvidenceCollection,
+    ) -> EvidenceCollection:
+        """Merge another normalized collection under the same validation and size limits."""
+        if (
+            collection.investigation_id != additions.investigation_id
+            or collection.execution_id != additions.execution_id
+        ):
+            raise ValueError("Evidence collections must belong to the same execution")
+
+        window_seconds = int(
+            collection.metadata.get(
+                "correlation_window_seconds",
+                self.config.correlation.default_window_seconds,
+            )
+        )
+        warnings = [*collection.warnings, *additions.warnings]
+        max_items = self.config.limits.max_evidence_items
+        candidates = [*collection.items, *additions.items]
+        if len(candidates) > max_items:
+            warnings.append(
+                f"Evidence item limit ({max_items}) reached; additional items were omitted"
+            )
+            candidates = candidates[:max_items]
+
+        valid_items: list[Evidence] = []
+        collection_bytes = 0
+        rejected_count = (
+            collection.summary.validation_failure_count
+            + additions.summary.validation_failure_count
+        )
+        for item in candidates:
+            self._sanitize_evidence(item)
+            is_valid, item_warnings = self.validator.validate(item)
+            warnings.extend(item_warnings)
+            if not is_valid:
+                rejected_count += 1
+                continue
+            item_bytes = len(
+                json.dumps(item.to_dict(), default=str, ensure_ascii=False).encode("utf-8")
+            )
+            if collection_bytes + item_bytes > self.config.limits.max_collection_bytes:
+                warnings.append(
+                    f"Evidence collection size limit "
+                    f"({self.config.limits.max_collection_bytes} bytes) reached; "
+                    "additional items were omitted"
+                )
+                rejected_count += 1
+                continue
+            collection_bytes += item_bytes
+            valid_items.append(item)
+
+        deduplicated, merge_duplicate_count = self.deduplicator.deduplicate(valid_items)
+        duplicate_count = (
+            collection.summary.duplicate_count
+            + additions.summary.duplicate_count
+            + merge_duplicate_count
+        )
+        warnings.extend(warning for item in deduplicated for warning in item.warnings)
+        collection.items = deduplicated
+        collection.warnings = self._unique_strings(warnings)
+        collection.timeline = (
+            self._build_timeline(deduplicated, collection) if self.config.enable_timeline else []
+        )
+        collection.correlations = (
+            self._correlate(
+                deduplicated,
+                window_seconds=window_seconds,
+                collection=collection,
+            )
+            if self.config.enable_correlation
+            else []
+        )
+        collection.summary = self._summarize(
+            deduplicated,
+            duplicate_count=duplicate_count,
+            validation_failure_count=rejected_count,
+            correlation_count=len(collection.correlations),
+            warning_count=len(collection.warnings),
+        )
+        collection.groups_by_source = self._group_ids(deduplicated, lambda item: item.source)
+        collection.groups_by_type = self._group_ids(
+            deduplicated,
+            lambda item: item.evidence_type.value,
+        )
+        collection.metadata.update(
+            {
+                "duplicates_removed": duplicate_count,
+                "rejected_item_count": rejected_count,
+                "collection_payload_bytes": collection_bytes,
+                "max_collection_bytes": self.config.limits.max_collection_bytes,
+            }
+        )
+        collection.summary.warning_count = len(collection.warnings)
+        return collection
+
     def _resolve_window(self, window_seconds: int | None) -> int:
         if window_seconds is None:
             return self.config.correlation.default_window_seconds

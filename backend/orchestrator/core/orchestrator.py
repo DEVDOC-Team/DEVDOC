@@ -19,6 +19,7 @@ from orchestrator.core.result import (
     OrchestrationResult,
     StageResult,
 )
+from orchestrator.knowledge.service import KnowledgeSearchService
 from orchestrator.llm.service import LLMService
 from orchestrator.stages.investigation import (
     create_default_stage_registry,
@@ -46,11 +47,15 @@ class DEVDOCOrchestrator:
         workflow: WorkflowDefinition | None = None,
         *,
         llm_service: LLMService | None = None,
+        knowledge_search_service: KnowledgeSearchService | None = None,
     ) -> None:
         self.registry = (
             registry
             if registry is not None
-            else create_default_stage_registry(llm_service=llm_service)
+            else create_default_stage_registry(
+                llm_service=llm_service,
+                knowledge_search_service=knowledge_search_service,
+            )
         )
         self.workflow = workflow if workflow is not None else create_default_workflow()
 

@@ -21,6 +21,7 @@ class EvidenceSource(str, enum.Enum):
     GITHUB = "github"
     DOCKER = "docker"
     MONITORING = "monitoring"
+    EXTERNAL_KNOWLEDGE = "external_knowledge"
     GENERIC = "generic"
     UNKNOWN = "unknown"
 
@@ -46,6 +47,9 @@ class EvidenceType(str, enum.Enum):
     SERVICE_HEALTH = "service_health"
     METRIC = "metric"
     ALERT = "alert"
+
+    # External technical references. This is not observed incident fact.
+    EXTERNAL_KNOWLEDGE = "external_knowledge"
 
     # Generic fallback
     GENERIC = "generic"

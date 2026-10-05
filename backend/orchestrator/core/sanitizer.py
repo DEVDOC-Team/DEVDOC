@@ -17,6 +17,10 @@ _SENSITIVE_VALUE_PATTERNS = [
     re.compile(r"ghp_[A-Za-z0-9_]+", re.IGNORECASE),
     re.compile(r"github_pat_[A-Za-z0-9_]+", re.IGNORECASE),
     re.compile(r"gho_[A-Za-z0-9_]+", re.IGNORECASE),
+    re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+    re.compile(r"(?<![A-Za-z0-9])(?:sk|pk)_[A-Za-z0-9_-]{16,}", re.IGNORECASE),
+    re.compile(r"AIza[A-Za-z0-9_-]{30,}"),
+    re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
     re.compile(r"Bearer\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE),
     re.compile(r"-----BEGIN[ A-Z0-9_-]+KEY-----[\s\S]*?-----END[ A-Z0-9_-]+KEY-----"),
     re.compile(

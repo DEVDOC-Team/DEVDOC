@@ -20,6 +20,7 @@ from orchestrator.contracts.stage import BaseStage, StageIdentifier
 from orchestrator.core.context import InvestigationContext
 from orchestrator.core.result import AgentResult, ExecutionStatus, StageResult
 from orchestrator.evidence.engine import EvidenceEngine
+from orchestrator.knowledge.service import KnowledgeSearchError, KnowledgeSearchService
 from orchestrator.llm.service import LLMService, LLMServiceError
 from orchestrator.stages.registry import StageRegistry
 
@@ -183,8 +184,13 @@ class CollectEvidenceStage(BaseStage):
 class AnalyzeStage(BaseStage):
     """Evidence reasoning stage; provider use requires explicit service injection."""
 
-    def __init__(self, llm_service: LLMService | None = None) -> None:
+    def __init__(
+        self,
+        llm_service: LLMService | None = None,
+        knowledge_search_service: KnowledgeSearchService | None = None,
+    ) -> None:
         self.llm_service = llm_service
+        self.knowledge_search_service = knowledge_search_service
 
     @property
     def stage_id(self) -> str:
@@ -205,13 +211,54 @@ class AnalyzeStage(BaseStage):
 
         output_meta: dict[str, Any] = {
             "analysis_status": "reasoning_disabled",
+            "knowledge_search_status": (
+                "disabled" if self.knowledge_search_service is None else "pending"
+            ),
         }
         status = ExecutionStatus.SUCCESS
         error_message: str | None = None
         if (
+            self.knowledge_search_service is not None
+            and context.evidence_collection is not None
+            and context.evidence_collection.items
+        ):
+            try:
+                search_result, updated_evidence = (
+                    await self.knowledge_search_service.search_investigation(
+                        context,
+                        context.evidence_collection,
+                    )
+                )
+            except KnowledgeSearchError as exc:
+                status = ExecutionStatus.FAILED
+                error_message = str(exc)
+                output_meta["knowledge_search_status"] = "unavailable"
+                context.add_warning("External knowledge search was unavailable")
+            else:
+                output_meta["knowledge_search_status"] = (
+                    "completed" if search_result.results else "completed_no_results"
+                )
+                output_meta["knowledge_search"] = {
+                    "provider": search_result.provider,
+                    "query": search_result.query,
+                    "result_count": search_result.total_results,
+                    "evidence_ids": [
+                        str(item.evidence_id)
+                        for item in updated_evidence.items
+                        if item.evidence_type.value == "external_knowledge"
+                    ],
+                    "duration_ms": search_result.metadata.duration_ms,
+                    "attempts": search_result.metadata.attempts,
+                    "cache_hit": search_result.metadata.cache_hit,
+                }
+        elif self.knowledge_search_service is not None:
+            output_meta["knowledge_search_status"] = "skipped_no_evidence"
+
+        if (
             self.llm_service is not None
             and context.evidence_collection is not None
             and context.evidence_collection.items
+            and output_meta["knowledge_search_status"] not in {"pending", "unavailable"}
         ):
             try:
                 response = await self.llm_service.reason(context.evidence_collection)
@@ -224,7 +271,11 @@ class AnalyzeStage(BaseStage):
                 output_meta["reasoning"] = response.reasoning.model_dump(mode="json")
                 output_meta["llm_metadata"] = response.metadata.model_dump(mode="json")
         elif self.llm_service is not None:
-            output_meta["analysis_status"] = "skipped_no_evidence"
+            output_meta["analysis_status"] = (
+                "skipped_knowledge_search_failure"
+                if output_meta["knowledge_search_status"] == "unavailable"
+                else "skipped_no_evidence"
+            )
         context.record_stage_complete(self.stage_id)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
@@ -233,6 +284,12 @@ class AnalyzeStage(BaseStage):
             status=status,
             output_metadata=output_meta,
             error_message=error_message,
+            evidence_collection=(
+                context.evidence_collection.to_dict()
+                if self.knowledge_search_service is not None
+                and context.evidence_collection is not None
+                else None
+            ),
             started_at=started_at,
             completed_at=datetime.now(UTC),
             duration_ms=duration_ms,
@@ -387,12 +444,18 @@ class CompleteStage(BaseStage):
 
 def create_default_stage_registry(
     llm_service: LLMService | None = None,
+    knowledge_search_service: KnowledgeSearchService | None = None,
 ) -> StageRegistry:
     """Build a StageRegistry pre-populated with all 7 canonical investigation stages."""
     registry = StageRegistry()
     registry.register(InitializeStage())
     registry.register(CollectEvidenceStage())
-    registry.register(AnalyzeStage(llm_service=llm_service))
+    registry.register(
+        AnalyzeStage(
+            llm_service=llm_service,
+            knowledge_search_service=knowledge_search_service,
+        )
+    )
     registry.register(DiagnoseStage())
     registry.register(ProposeFixStage())
     registry.register(VerifyStage())
@@ -424,6 +487,7 @@ def create_operational_stage_registry(
     docker_agent: BaseAgent | None = None,
     monitoring_agent: BaseAgent | None = None,
     llm_service: LLMService | None = None,
+    knowledge_search_service: KnowledgeSearchService | None = None,
 ) -> StageRegistry:
     """Build a StageRegistry configured with operational investigation agents."""
     agents: list[BaseAgent] = []
@@ -437,7 +501,12 @@ def create_operational_stage_registry(
     registry = StageRegistry()
     registry.register(InitializeStage())
     registry.register(CollectEvidenceStage(agents=agents))
-    registry.register(AnalyzeStage(llm_service=llm_service))
+    registry.register(
+        AnalyzeStage(
+            llm_service=llm_service,
+            knowledge_search_service=knowledge_search_service,
+        )
+    )
     registry.register(DiagnoseStage())
     registry.register(ProposeFixStage())
     registry.register(VerifyStage())
