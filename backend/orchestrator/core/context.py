@@ -10,9 +10,12 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from orchestrator.core.errors import ContextValidationError
+
+if TYPE_CHECKING:
+    from orchestrator.evidence.models import EvidenceCollection
 
 # Disallowed keys to prevent accidental secret leakage into context
 FORBIDDEN_KEY_PATTERNS = {
@@ -72,6 +75,7 @@ class InvestigationContext:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     execution_timestamps: dict[str, datetime] = field(default_factory=dict)
+    evidence_collection: EvidenceCollection | None = None
     cancellation_token: CancellationToken = field(default_factory=CancellationToken)
 
     def __post_init__(self) -> None:

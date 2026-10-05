@@ -20,6 +20,7 @@ from orchestrator.contracts.stage import BaseStage, StageIdentifier
 from orchestrator.core.context import InvestigationContext
 from orchestrator.core.result import AgentResult, ExecutionStatus, StageResult
 from orchestrator.evidence.engine import EvidenceEngine
+from orchestrator.llm.service import LLMService, LLMServiceError
 from orchestrator.stages.registry import StageRegistry
 
 
@@ -149,6 +150,7 @@ class CollectEvidenceStage(BaseStage):
             ),
         }
         evidence_collection = self.evidence_engine.process(agent_results, context)
+        context.evidence_collection = evidence_collection
         output_meta["evidence_item_count"] = evidence_collection.summary.total_evidence_count
         output_meta["evidence_timeline_count"] = len(evidence_collection.timeline)
         output_meta["evidence_correlation_count"] = len(evidence_collection.correlations)
@@ -179,7 +181,10 @@ class CollectEvidenceStage(BaseStage):
 
 
 class AnalyzeStage(BaseStage):
-    """Reasoning and telemetry analysis contract stage (future Phase 13 & 14)."""
+    """Evidence reasoning stage; provider use requires explicit service injection."""
+
+    def __init__(self, llm_service: LLMService | None = None) -> None:
+        self.llm_service = llm_service
 
     @property
     def stage_id(self) -> str:
@@ -199,15 +204,35 @@ class AnalyzeStage(BaseStage):
         context.record_stage_start(self.stage_id)
 
         output_meta: dict[str, Any] = {
-            "analysis_status": "ready_for_phase13_reasoning",
+            "analysis_status": "reasoning_disabled",
         }
+        status = ExecutionStatus.SUCCESS
+        error_message: str | None = None
+        if (
+            self.llm_service is not None
+            and context.evidence_collection is not None
+            and context.evidence_collection.items
+        ):
+            try:
+                response = await self.llm_service.reason(context.evidence_collection)
+            except LLMServiceError as exc:
+                status = ExecutionStatus.FAILED
+                error_message = str(exc)
+                output_meta["analysis_status"] = "failed"
+            else:
+                output_meta["analysis_status"] = "completed"
+                output_meta["reasoning"] = response.reasoning.model_dump(mode="json")
+                output_meta["llm_metadata"] = response.metadata.model_dump(mode="json")
+        elif self.llm_service is not None:
+            output_meta["analysis_status"] = "skipped_no_evidence"
         context.record_stage_complete(self.stage_id)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
         return StageResult(
             stage_id=self.stage_id,
-            status=ExecutionStatus.SUCCESS,
+            status=status,
             output_metadata=output_meta,
+            error_message=error_message,
             started_at=started_at,
             completed_at=datetime.now(UTC),
             duration_ms=duration_ms,
@@ -360,12 +385,14 @@ class CompleteStage(BaseStage):
         )
 
 
-def create_default_stage_registry() -> StageRegistry:
+def create_default_stage_registry(
+    llm_service: LLMService | None = None,
+) -> StageRegistry:
     """Build a StageRegistry pre-populated with all 7 canonical investigation stages."""
     registry = StageRegistry()
     registry.register(InitializeStage())
     registry.register(CollectEvidenceStage())
-    registry.register(AnalyzeStage())
+    registry.register(AnalyzeStage(llm_service=llm_service))
     registry.register(DiagnoseStage())
     registry.register(ProposeFixStage())
     registry.register(VerifyStage())
@@ -396,6 +423,7 @@ def create_operational_stage_registry(
     github_agent: BaseAgent | None = None,
     docker_agent: BaseAgent | None = None,
     monitoring_agent: BaseAgent | None = None,
+    llm_service: LLMService | None = None,
 ) -> StageRegistry:
     """Build a StageRegistry configured with operational investigation agents."""
     agents: list[BaseAgent] = []
@@ -409,7 +437,7 @@ def create_operational_stage_registry(
     registry = StageRegistry()
     registry.register(InitializeStage())
     registry.register(CollectEvidenceStage(agents=agents))
-    registry.register(AnalyzeStage())
+    registry.register(AnalyzeStage(llm_service=llm_service))
     registry.register(DiagnoseStage())
     registry.register(ProposeFixStage())
     registry.register(VerifyStage())

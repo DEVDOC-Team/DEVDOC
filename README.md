@@ -2,7 +2,7 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate verified fixes with human-in-the-loop approval.
 
-> **Current Status**: Phases 1–12 are implemented, including the backend foundation, orchestrator, operational agents, and evidence engine. Phase 13+ is upcoming.
+> **Current Status**: Phases 1–13 are implemented, including the opt-in Nemotron/Nebius reasoning layer. Phase 14+ is upcoming.
 
 ---
 
@@ -32,8 +32,8 @@ Human Approval
 Resolve
 ```
 
-* **Implemented Today (Phases 1–12)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, investigation API contract, the foundational AI Investigation Orchestrator (`backend/orchestrator`), operational agents (`GitHubAgent`, `DockerAgent`, `MonitoringAgent`), and their evidence normalization, timeline, and correlation pipeline.
-* **Planned (Phase 13+)**: Nemotron/Nebius LLM reasoning, Tavily web search, automated root cause synthesis, sandbox fix verification, and interactive human-in-the-loop approval gates.
+* **Implemented Today (Phases 1–13)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, the investigation orchestrator, operational agents, the bounded evidence engine, and opt-in structured Nemotron/Nebius reasoning.
+* **Planned (Phase 14+)**: Tavily web search, automated root cause synthesis, sandbox fix verification, and interactive human-in-the-loop approval gates.
 
 
 ## Why DEVDOC?
@@ -81,7 +81,7 @@ Authentication & JWT            Authoritative Project
                 Evidence Engine            [Phase 12 — Implemented]
                        │
                        ▼
-         NVIDIA Nemotron via Nebius        [Phase 13 — Planned]
+         NVIDIA Nemotron via Nebius        [Phase 13 — Implemented, opt-in]
                        │
                        ▼
             Tavily Knowledge Search        [Phase 14 — Planned]
@@ -126,7 +126,7 @@ Authentication & JWT            Authoritative Project
 
 | Component | Planned Technology | Target Phase |
 |---|---|---|
-| AI Reasoning Model | NVIDIA Nemotron 70B via Nebius Token API | Phase 13 |
+| AI Reasoning Model | NVIDIA Nemotron via Nebius Token API (opt-in) | Phase 13 |
 | Knowledge Search | Tavily API | Phase 14 |
 | Agent Orchestration | DEVDOC Custom Orchestrator Package | Phase 10 |
 | Sandbox Execution | Isolated Docker / MicroVM Environments | Phase 17 |
@@ -152,7 +152,7 @@ DEVDOC is being delivered across 26 systematic development phases. Phases 1 thro
 | 10 | ✅ Complete | DEVDOC Orchestrator | Autonomous agent orchestrator package, workflow coordination |
 | 11 | ✅ Complete | Investigation Agents | Specialized GitHub, Docker, and Monitoring inspection agents |
 | 12 | ✅ Complete | Evidence Engine | Bounded evidence normalization, validation, deduplication, timeline assembly, and graph correlation |
-| 13 | ⏳ Planned | NVIDIA Nemotron + Nebius | LLM client integration, budget guardrails, token/cost optimization |
+| 13 | ✅ Complete | NVIDIA Nemotron + Nebius | Provider abstraction, structured evidence reasoning, budget guardrails, token/cost tracking |
 | 14 | ⏳ Planned | Knowledge Search / Tavily | External documentation, CVE, and error solution retrieval |
 | 15 | ⏳ Planned | Root Cause Engine | Causal analysis, diagnostic synthesis, hypothesis ranking |
 | 16 | ⏳ Planned | Fix Generator | Automated patch generation, configuration remediation diffs |
@@ -235,7 +235,11 @@ devdoc/
 │   │       ├── investigation.py
 │   │       ├── project.py
 │   │       └── user.py
-│   └── tests/                    # Comprehensive test suite (Phases 1–9)
+│   ├── orchestrator/
+│   │   ├── evidence/             # Phase 12 evidence engine and contracts
+│   │   ├── llm/                  # Phase 13 provider, service, cache, and budget guard
+│   │   └── tests/                # Deterministic orchestrator and LLM tests
+│   └── tests/                    # Backend API and database test suite
 ├── frontend/                     # [Planned] React/Vite web application
 ├── orchestrator/                 # [Phase 10 — Next] AI agent orchestrator package
 ├── infra/                        # [Planned] Terraform & cloud infrastructure
@@ -569,17 +573,23 @@ Production Resolution [Phase 18]
 
 ---
 
-# 15. NVIDIA / Nebius Cost Control
+# 15. NVIDIA / Nebius Reasoning and Cost Control
 
-> **Status: Planned — Phase 13**
+> **Status: Implemented — Phase 13 (opt-in; no model call at startup or in tests)**
 
-The Phase 13 AI integration will implement strict cost and token guardrails:
-* **Budget Guards**: Pre-run checks against project-level monthly token and expenditure quotas.
-* **Token Tracking**: Per-investigation recording of `tokens_used` and `estimated_cost_usd` in micro-USD ($0.000001 precision).
-* **Token Limits**: Hard caps on prompt context windows and max output tokens per model call.
-* **Prompt Caching**: Deduplication of static system instructions and unchanged repository context.
-* **Retry Limits & Circuit Breakers**: Bounded exponential backoff to avoid runaway billing on upstream model errors.
-* **Zero Client Exposure**: AI provider API keys remain exclusively on the server and are never exposed to the client.
+Phase 13 consumes the normalized Phase 12 evidence collection and returns structured observations, explicit uncertainties, and follow-up questions. Its output is evidence-referenced and is not a root-cause diagnosis or a fix proposal.
+
+* **Provider boundary**: `LLMProvider` separates provider-neutral orchestration from the Nebius OpenAI-compatible Nemotron adapter. A deterministic fake provider is used in automated tests.
+* **Explicit opt-in**: `LLM_ENABLED=false` by default. No model client is constructed, and no outbound LLM call occurs during imports, application startup, health checks, local tests, or CI. To use the provider, explicitly construct it with `create_nebius_llm_service(settings)` and inject that service into `DEVDOCOrchestrator` or an operational stage registry.
+* **Budget cap**: Each outbound attempt first reserves its worst-case input/output cost against a maximum configured budget of $25. The factory uses an atomic SQLite ledger (default `backend/.devdoc-llm-budget.sqlite3`) so spend and in-flight reservations survive restarts and are shared by processes using the same local filesystem. Failed or crash-interrupted attempts consume their reservation because provider-side billing may be unknown. SQLite does not coordinate separate hosts; multi-host live inference requires a shared transactional budget store, which is outside this phase.
+* **Pricing configuration**: Set both `LLM_INPUT_COST_PER_MILLION_USD` and `LLM_OUTPUT_COST_PER_MILLION_USD` to the current price for the configured Nebius model before enabling requests. Zero/unset rates cause service construction to fail closed; estimates are not a provider invoice.
+* **Token and request bounds**: UTF-8 request size is conservatively bounded by the configured input-token limit; output tokens, HTTP timeout, retries (maximum three), and exponential backoff are also capped.
+* **Cache**: Successful structured results are kept in a bounded in-memory TTL cache. Cache hits make no provider request and have zero additional token cost.
+* **Response safety**: Provider JSON is validated against strict Pydantic contracts. Every referenced evidence ID must belong to the submitted evidence set. Evidence text is sanitized and treated as untrusted data.
+* **Observability**: Results include provider/model, request ID, duration, attempts, input/output token counts, estimated spend, budget remaining, and cache-hit status. Prompts and credentials are excluded.
+* **Secret handling**: The Nebius API key is a `SecretStr`, sent only in the server-side HTTPS Authorization header, and never included in logs or error messages.
+
+See `backend/.env.example` for the complete Phase 13 configuration. Do not enable live inference without setting current Nebius token prices and explicitly injecting the configured service.
 
 ---
 
@@ -738,14 +748,27 @@ Configure `.env` locally using `backend/.env.example` as a template:
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth application client secret | `your-github-client-secret` |
 | `GITHUB_OAUTH_REDIRECT_URI` | GitHub OAuth callback redirect URI | `http://localhost:8000/api/v1/github/callback` |
 | `GITHUB_API_BASE_URL` | GitHub API base URL | `https://api.github.com` |
-| `NEBIUS_API_KEY` | *(Planned Phase 13)* Nebius token API key | `nebius-api-key-placeholder` |
+| `LLM_ENABLED` | Enable live Phase 13 reasoning; defaults to disabled | `false` |
+| `NEBIUS_API_KEY` | Server-side Nebius token API key | Leave empty until explicitly enabling |
+| `NEBIUS_BASE_URL` | Nebius OpenAI-compatible API base URL | `https://api.studio.nebius.ai/v1` |
+| `NEBIUS_MODEL` | Nemotron model identifier | `nvidia/Llama-3.1-Nemotron-70B-Instruct` |
+| `LLM_TIMEOUT_SECONDS` | Per-request HTTP timeout (maximum 120 seconds) | `30` |
+| `LLM_MAX_ATTEMPTS` | Maximum attempts per request (maximum 3) | `2` |
+| `LLM_MAX_INPUT_TOKENS` | Maximum conservative input-size budget | `12000` |
+| `LLM_MAX_OUTPUT_TOKENS` | Provider output-token ceiling | `1000` |
+| `LLM_BUDGET_USD` | Process guard ceiling; cannot exceed project credit budget | `25` |
+| `LLM_BUDGET_LEDGER_PATH` | Persistent SQLite spend/reservation ledger path | `.devdoc-llm-budget.sqlite3` |
+| `LLM_INPUT_COST_PER_MILLION_USD` | Current Nebius input price for configured model | `0` (must be configured to enable) |
+| `LLM_OUTPUT_COST_PER_MILLION_USD` | Current Nebius output price for configured model | `0` (must be configured to enable) |
+| `LLM_CACHE_TTL_SECONDS` | Successful-result in-memory cache TTL | `900` |
+| `LLM_CACHE_MAX_ENTRIES` | Maximum successful-result cache entries | `128` |
 | `TAVILY_API_KEY` | *(Planned Phase 14)* Tavily search API key | `tavily-api-key-placeholder` 
 
 ---
 
 # 23. Current Limitations & Phase Status
 
-As of Phase 12 completion, the orchestration framework, operational investigation agents, and bounded evidence processing pipeline are established:
+As of Phase 13 completion, the orchestration framework, operational investigation agents, bounded evidence processing pipeline, and opt-in LLM reasoning layer are established:
 
 ### IMPLEMENTED (Phase 10 — DEVDOC Orchestrator)
 * **Orchestration Engine**: Central DEVDOCOrchestrator coordinating sequential stage execution, failure handling, and execution tracing (ackend/orchestrator/core/orchestrator.py).
@@ -773,8 +796,15 @@ un_investigation_orchestration in ackend/app/services/investigation.py.
 * **Orchestrator integration**: `CollectEvidenceStage` processes agent results and returns the bounded serialized evidence collection alongside collection summary counts.
 * **Resource guardrails**: Configurable limits cap agent/evidence count, per-item and aggregate payload bytes, field length, source records, timeline entries, graph edges, and correlation windows.
 
-### NOT IMPLEMENTED (Planned for Phase 13+)
-* **Nemotron Reasoning via Nebius**: NVIDIA Nemotron LLM reasoning and token budget guarding (Phase 13).
+### IMPLEMENTED (Phase 13 — Nemotron / Nebius Reasoning)
+* **Provider abstraction and Nebius adapter**: Async provider contract and HTTPS-only OpenAI-compatible Nemotron client; API key remains server-side.
+* **Structured reasoning contract**: Sanitized evidence-set input, strict Pydantic output validation, evidence-ID validation, and explicit boundary against root-cause claims and fix generation.
+* **Token, cost, and budget controls**: Input/output limits, configurable price-based estimates, pre-request worst-case reservations, a hard `$25` maximum, and bounded retry/timeouts.
+* **Cache and observability**: Bounded TTL cache plus safe request, usage, duration, and estimated cost metadata.
+* **Orchestrator integration**: `AnalyzeStage` receives the collected evidence and calls the provider only when an `LLMService` is explicitly injected. The default workflow remains offline.
+* **Deterministic tests**: All LLM service tests use fake providers or `httpx.MockTransport`; no automated test makes live model calls.
+
+### NOT IMPLEMENTED (Planned for Phase 14+)
 * **Knowledge Retrieval**: Web search and external incident knowledge lookup via Tavily (Phase 14).
 * **Root Cause Engine**: Automated causal graph synthesis and fault diagnosis (Phase 15).
 * **Fix Generator**: Automated code patch and configuration generation (Phase 16).

@@ -95,6 +95,28 @@ class Settings(BaseSettings):
     github_api_base_url: str = Field(default="https://api.github.com")
 
     # ------------------------------------------------------------------ #
+    # LLM reasoning — Phase 13 (opt-in; never initialized during startup)
+    # ------------------------------------------------------------------ #
+    llm_enabled: bool = Field(default=False)
+    nebius_api_key: SecretStr = Field(default=SecretStr(""))
+    nebius_base_url: str = Field(default="https://api.studio.nebius.ai/v1")
+    nebius_model: str = Field(default="nvidia/Llama-3.1-Nemotron-70B-Instruct")
+    llm_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    llm_max_attempts: int = Field(default=2, ge=1, le=3)
+    llm_retry_backoff_seconds: float = Field(default=0.5, ge=0, le=5)
+    llm_max_input_tokens: int = Field(default=12_000, ge=1, le=32_000)
+    llm_max_output_tokens: int = Field(default=1_000, ge=1, le=4_000)
+    llm_budget_usd: float = Field(default=25.0, gt=0, le=25.0)
+    llm_budget_ledger_path: str = Field(
+        default=".devdoc-llm-budget.sqlite3",
+        min_length=1,
+    )
+    llm_input_cost_per_million_usd: float = Field(default=0.0, ge=0)
+    llm_output_cost_per_million_usd: float = Field(default=0.0, ge=0)
+    llm_cache_ttl_seconds: int = Field(default=900, ge=0, le=86_400)
+    llm_cache_max_entries: int = Field(default=128, ge=0, le=10_000)
+
+    # ------------------------------------------------------------------ #
     # Convenience helpers
     # ------------------------------------------------------------------ #
     @property

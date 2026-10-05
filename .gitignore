@@ -13,6 +13,7 @@ env/
 # Environment files (never commit real credentials)
 .env
 *.env
+backend/.devdoc-llm-budget.sqlite3*
 
 # Testing
 .pytest_cache/

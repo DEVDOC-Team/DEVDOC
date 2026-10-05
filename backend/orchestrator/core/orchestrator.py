@@ -19,6 +19,7 @@ from orchestrator.core.result import (
     OrchestrationResult,
     StageResult,
 )
+from orchestrator.llm.service import LLMService
 from orchestrator.stages.investigation import (
     create_default_stage_registry,
     create_default_workflow,
@@ -43,8 +44,14 @@ class DEVDOCOrchestrator:
         self,
         registry: StageRegistry | None = None,
         workflow: WorkflowDefinition | None = None,
+        *,
+        llm_service: LLMService | None = None,
     ) -> None:
-        self.registry = registry if registry is not None else create_default_stage_registry()
+        self.registry = (
+            registry
+            if registry is not None
+            else create_default_stage_registry(llm_service=llm_service)
+        )
         self.workflow = workflow if workflow is not None else create_default_workflow()
 
     async def execute(self, context: InvestigationContext) -> OrchestrationResult:
