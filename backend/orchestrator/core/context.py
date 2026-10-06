@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from orchestrator.evidence.models import EvidenceCollection
     from orchestrator.fixes.models import FixProposal
     from orchestrator.rca.models import RootCauseAnalysis
+    from orchestrator.sandbox.models import SandboxVerificationResult
 
 # Disallowed keys to prevent accidental secret leakage into context
 FORBIDDEN_KEY_PATTERNS = {
@@ -80,6 +81,7 @@ class InvestigationContext:
     evidence_collection: EvidenceCollection | None = None
     root_cause_analysis: RootCauseAnalysis | None = None
     fix_proposal: FixProposal | None = None
+    sandbox_verification_result: SandboxVerificationResult | None = None
     cancellation_token: CancellationToken = field(default_factory=CancellationToken)
 
     def __post_init__(self) -> None:
@@ -190,4 +192,9 @@ class InvestigationContext:
                 k: v.isoformat() for k, v in self.execution_timestamps.items()
             },
             "is_cancelled": self.is_cancelled(),
+            "sandbox_verification_result": (
+                self.sandbox_verification_result.model_dump(mode="json")
+                if self.sandbox_verification_result is not None
+                else None
+            ),
         }

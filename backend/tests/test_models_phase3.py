@@ -423,16 +423,9 @@ async def test_investigation_project_fk_invalid(db: AsyncSession, incident: Inci
     await db.rollback()
 
 
-async def test_investigation_confidence_score_constraint_declared():
-    """CheckConstraint on confidence_score is in metadata if column exists."""
-    if "confidence_score" not in Base.metadata.tables["investigations"].columns:
-        pytest.skip("confidence_score removed in Phase 9")
-    constraint_names = {
-        c.name
-        for c in Base.metadata.tables["investigations"].constraints
-        if hasattr(c, "name") and c.name
-    }
-    assert "ck_investigations_confidence_score_range" in constraint_names
+async def test_investigation_confidence_score_removed_in_phase9():
+    """Phase 9 replaced the original confidence score with structured RCA output."""
+    assert "confidence_score" not in Base.metadata.tables["investigations"].columns
 
 
 async def test_investigation_token_and_cost_tracking(

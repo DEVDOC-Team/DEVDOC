@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from orchestrator.contracts.execution import FailurePolicy, WorkflowDefinition
@@ -19,9 +21,12 @@ from orchestrator.core.result import (
     OrchestrationResult,
     StageResult,
 )
+from orchestrator.fixes.models import FixProposal
 from orchestrator.knowledge.service import KnowledgeSearchService
 from orchestrator.llm.service import LLMService
 from orchestrator.rca.service import RootCauseAnalysisService
+from orchestrator.sandbox.models import VerificationCommand
+from orchestrator.sandbox.service import SandboxVerificationService
 from orchestrator.stages.investigation import (
     create_default_stage_registry,
     create_default_workflow,
@@ -50,6 +55,15 @@ class DEVDOCOrchestrator:
         llm_service: LLMService | None = None,
         knowledge_search_service: KnowledgeSearchService | None = None,
         rca_service: RootCauseAnalysisService | None = None,
+        sandbox_verification_service: SandboxVerificationService | None = None,
+        sandbox_workspace_resolver: (
+            Callable[
+                [InvestigationContext, FixProposal],
+                Awaitable[str | Path | None],
+            ]
+            | None
+        ) = None,
+        verification_commands: Sequence[VerificationCommand] = (),
     ) -> None:
         self.registry = (
             registry
@@ -58,6 +72,9 @@ class DEVDOCOrchestrator:
                 llm_service=llm_service,
                 knowledge_search_service=knowledge_search_service,
                 rca_service=rca_service,
+                sandbox_verification_service=sandbox_verification_service,
+                sandbox_workspace_resolver=sandbox_workspace_resolver,
+                verification_commands=verification_commands,
             )
         )
         self.workflow = workflow if workflow is not None else create_default_workflow()

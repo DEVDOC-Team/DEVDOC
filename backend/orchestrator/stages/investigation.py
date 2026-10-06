@@ -11,7 +11,9 @@ integrated; fix generation (Phase 16) and sandbox verification (Phase 17) remain
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from orchestrator.contracts.agent import BaseAgent
@@ -25,6 +27,12 @@ from orchestrator.fixes.service import FixGenerationError, FixGeneratorService
 from orchestrator.knowledge.service import KnowledgeSearchError, KnowledgeSearchService
 from orchestrator.llm.service import LLMService, LLMServiceError
 from orchestrator.rca.service import RCAServiceError, RootCauseAnalysisService
+from orchestrator.sandbox.models import (
+    SandboxVerificationResult,
+    VerificationCommand,
+    VerificationStatus,
+)
+from orchestrator.sandbox.service import SandboxVerificationService
 from orchestrator.stages.registry import StageRegistry
 
 
@@ -442,7 +450,23 @@ class ProposeFixStage(BaseStage):
 
 
 class VerifyStage(BaseStage):
-    """Sandbox verification contract stage (future Phase 17)."""
+    """Runs a validated Phase 16 proposal in an explicitly configured sandbox."""
+
+    def __init__(
+        self,
+        sandbox_verification_service: SandboxVerificationService | None = None,
+        workspace_resolver: (
+            Callable[
+                [InvestigationContext, FixProposal],
+                Awaitable[str | Path | None],
+            ]
+            | None
+        ) = None,
+        verification_commands: Sequence[VerificationCommand] = (),
+    ) -> None:
+        self.sandbox_verification_service = sandbox_verification_service
+        self.workspace_resolver = workspace_resolver
+        self.verification_commands = list(verification_commands)
 
     @property
     def stage_id(self) -> str:
@@ -461,16 +485,51 @@ class VerifyStage(BaseStage):
         started_at = datetime.now(UTC)
         context.record_stage_start(self.stage_id)
 
-        output_meta: dict[str, Any] = {
-            "verification_status": "ready_for_phase17_sandbox",
-        }
+        output_meta: dict[str, Any] = {}
+        stage_status = ExecutionStatus.SUCCESS
+        warnings: list[str] = []
+        error_message: str | None = None
+        proposal = context.fix_proposal
+        if proposal is None:
+            output_meta["verification_status"] = "skipped_no_fix_proposal"
+        elif self.sandbox_verification_service is None:
+            output_meta["verification_status"] = "inconclusive"
+            warnings.append("Sandbox verification provider is not configured")
+            stage_status = ExecutionStatus.SKIPPED
+        else:
+            workspace_path = (
+                await self.workspace_resolver(context, proposal)
+                if self.workspace_resolver is not None
+                else None
+            )
+            result: SandboxVerificationResult = (
+                await self.sandbox_verification_service.verify(
+                    proposal,
+                    workspace_path=workspace_path,
+                    commands=self.verification_commands,
+                    is_cancelled=context.is_cancelled,
+                )
+            )
+            context.sandbox_verification_result = result
+            output_meta["verification"] = result.model_dump(mode="json")
+            output_meta["verification_status"] = result.status.value
+            if result.status == VerificationStatus.INCONCLUSIVE:
+                warnings.append(result.summary)
+                stage_status = ExecutionStatus.SKIPPED
+            elif result.status == VerificationStatus.CANCELLED:
+                stage_status = ExecutionStatus.CANCELLED
+            elif result.status != VerificationStatus.PASSED:
+                stage_status = ExecutionStatus.FAILED
+                error_message = result.summary
         context.record_stage_complete(self.stage_id)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
         return StageResult(
             stage_id=self.stage_id,
-            status=ExecutionStatus.SUCCESS,
+            status=stage_status,
             output_metadata=output_meta,
+            warnings=warnings,
+            error_message=error_message,
             started_at=started_at,
             completed_at=datetime.now(UTC),
             duration_ms=duration_ms,
@@ -520,6 +579,15 @@ def create_default_stage_registry(
     knowledge_search_service: KnowledgeSearchService | None = None,
     rca_service: RootCauseAnalysisService | None = None,
     fix_generator_service: FixGeneratorService | None = None,
+    sandbox_verification_service: SandboxVerificationService | None = None,
+    sandbox_workspace_resolver: (
+        Callable[
+            [InvestigationContext, FixProposal],
+            Awaitable[str | Path | None],
+        ]
+        | None
+    ) = None,
+    verification_commands: Sequence[VerificationCommand] = (),
 ) -> StageRegistry:
     """Build a StageRegistry pre-populated with all 7 canonical investigation stages."""
     registry = StageRegistry()
@@ -533,7 +601,13 @@ def create_default_stage_registry(
     )
     registry.register(DiagnoseStage(rca_service=rca_service))
     registry.register(ProposeFixStage(fix_generator_service=fix_generator_service))
-    registry.register(VerifyStage())
+    registry.register(
+        VerifyStage(
+            sandbox_verification_service,
+            sandbox_workspace_resolver,
+            verification_commands,
+        )
+    )
     registry.register(CompleteStage())
     return registry
 
@@ -565,6 +639,15 @@ def create_operational_stage_registry(
     knowledge_search_service: KnowledgeSearchService | None = None,
     rca_service: RootCauseAnalysisService | None = None,
     fix_generator_service: FixGeneratorService | None = None,
+    sandbox_verification_service: SandboxVerificationService | None = None,
+    sandbox_workspace_resolver: (
+        Callable[
+            [InvestigationContext, FixProposal],
+            Awaitable[str | Path | None],
+        ]
+        | None
+    ) = None,
+    verification_commands: Sequence[VerificationCommand] = (),
 ) -> StageRegistry:
     """Build a StageRegistry configured with operational investigation agents."""
     agents: list[BaseAgent] = []
@@ -586,6 +669,12 @@ def create_operational_stage_registry(
     )
     registry.register(DiagnoseStage(rca_service=rca_service))
     registry.register(ProposeFixStage(fix_generator_service=fix_generator_service))
-    registry.register(VerifyStage())
+    registry.register(
+        VerifyStage(
+            sandbox_verification_service,
+            sandbox_workspace_resolver,
+            verification_commands,
+        )
+    )
     registry.register(CompleteStage())
     return registry

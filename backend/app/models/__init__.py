@@ -10,6 +10,7 @@ response serialisation in later phases.
 from app.db.base import Base
 from app.models.approval import Approval, ApprovalDecision
 from app.models.audit_log import AuditLog, AuditOutcome
+from app.models.chat import ChatConversation, ChatMessage
 from app.models.deployment import Deployment, DeploymentStatus
 from app.models.evidence import Evidence, EvidenceKind
 from app.models.fix_proposal import FixProposal, FixStatus
@@ -35,6 +36,8 @@ __all__ = [
     "FixProposal",
     "Approval",
     "AuditLog",
+    "ChatConversation",
+    "ChatMessage",
     # Enums
     "VCSProvider",
     "IncidentSeverity",
@@ -47,5 +50,4 @@ __all__ = [
     "ApprovalDecision",
     "AuditOutcome",
 ]
-
 

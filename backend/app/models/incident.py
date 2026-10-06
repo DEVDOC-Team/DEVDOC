@@ -29,7 +29,16 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -65,6 +74,7 @@ class Incident(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint("affected_users >= 0", name="ck_incidents_affected_users_non_negative"),
+        UniqueConstraint("id", "project_id", name="uq_incidents_id_project"),
         Index("ix_incidents_project_id_status", "project_id", "status"),
         Index("ix_incidents_project_id_severity", "project_id", "severity"),
         Index("ix_incidents_project_id_source", "project_id", "source"),
