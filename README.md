@@ -2,7 +2,7 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate proposed fixes for later sandbox verification and human approval.
 
-> **Current Status**: Phases 1–16 are implemented, including opt-in Nemotron/Nebius reasoning, Tavily knowledge search, evidence-grounded root-cause analysis, and non-executing remediation proposals. Sandbox verification and human approval remain upcoming.
+> **Current Status**: Phases 1–16.1 and the opt-in Phase 17 sandbox verification engine are implemented. Phase 17 requires explicit provider, source-workspace, and trusted verification-command injection; it is not enabled by default. Human approval and production remediation remain upcoming.
 
 ---
 
@@ -32,8 +32,9 @@ Human Approval
 Resolve
 ```
 
-* **Implemented Today (Phases 1–16)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, the investigation orchestrator, operational agents, the bounded evidence engine, opt-in structured Nemotron/Nebius reasoning, opt-in Tavily knowledge search, evidence-grounded root-cause analysis, and opt-in safe remediation proposals.
-* **Planned (Phase 17+)**: Isolated sandbox verification and interactive human-in-the-loop approval gates.
+* **Implemented Today (Phases 1–16.1)**: Backend foundation, Supabase database models and RLS, JWT authentication, project and incident APIs, persisted incident/investigation chat history, GitHub inspection, the orchestrator, evidence engine, opt-in LLM/search/RCA/fix generation, and non-executing remediation proposals.
+* **Implemented (Phase 17, opt-in)**: Provider-based sandbox verification with a deterministic fake provider and a Docker provider that disables networking, avoids host mounts/environment inheritance, and applies bounded resource controls.
+* **Planned (Phase 18+)**: Human approval, immutable approval audit, and production resolution.
 
 
 ## Why DEVDOC?
@@ -93,7 +94,7 @@ Authentication & JWT            Authoritative Project
             Fix Proposal Generator          [Phase 16 — Implemented, opt-in]
                        │
                        ▼
-             Sandbox Verification          [Phase 17 — Planned]
+             Sandbox Verification          [Phase 17 — Implemented, opt-in]
                        │
                        ▼
              Human Approval Gate           [Phase 18 — Planned]
@@ -155,7 +156,8 @@ DEVDOC is being delivered across 26 systematic development phases. Phases 1 thro
 | 14 | ✅ Complete | Knowledge Search / Tavily | Bounded, opt-in external knowledge retrieval with provenance |
 | 15 | ✅ Complete | Root Cause Engine | Evidence-referenced hypotheses, contradictions, confidence, and cautious cause selection |
 | 16 | ✅ Complete | Fix Generator | Evidence-grounded remediation proposals with patch, secret, path, risk, rollback, and verification validation; no execution |
-| 17 | ⏳ Planned | Sandbox Verification | Isolated container execution, test validation of proposed fixes |
+| 16.1 | ✅ Complete | Chat History | Persisted, paginated, incident-scoped conversations and user/assistant messages, optionally linked to an investigation |
+| 17 | ✅ Implemented (opt-in) | Sandbox Verification | Isolated, bounded verification of Phase 16 proposals; injected trusted commands only; no production access |
 | 18 | ⏳ Planned | Human Approval & Audit | Interactive approval workflow, immutable audit trail, resolution |
 | 19 | ⏳ Planned | Security Hardening | Rate limiting, header security, advanced secret sanitization |
 | 20 | ⏳ Planned | API Rate Limiting | Tenant-based request quotas, burst protection |
@@ -205,8 +207,9 @@ devdoc/
 │   │   │   ├── session.py        # Async engine & sessionmaker factories
 │   │   │   └── migrations/
 │   │   │       ├── env.py        # Alembic runtime environment
-│   │   │       └── versions/     # Versioned migration scripts (0001–0005)
+│   │   │       └── versions/     # Versioned migration scripts (0001–0006)
 │   │   ├── models/               # SQLAlchemy ORM models
+│   │   │   ├── chat.py           # Phase 16.1 conversations and messages
 │   │   │   ├── approval.py
 │   │   │   ├── audit_log.py
 │   │   │   ├── deployment.py
@@ -219,6 +222,7 @@ devdoc/
 │   │   │   ├── repository.py
 │   │   │   └── user.py
 │   │   ├── schemas/              # Pydantic request & response schemas
+│   │   │   ├── chat.py           # Chat history request/response contracts
 │   │   │   ├── auth.py
 │   │   │   ├── github.py
 │   │   │   ├── health.py
@@ -228,6 +232,7 @@ devdoc/
 │   │   │   ├── ready.py
 │   │   │   └── user.py
 │   │   └── services/             # Business logic layer
+│   │       ├── chat.py           # Project/incident-scoped chat persistence
 │   │       ├── auth.py
 │   │       ├── github.py
 │   │       ├── incident.py
@@ -238,6 +243,7 @@ devdoc/
 │   │   ├── evidence/             # Phase 12 evidence engine and contracts
 │   │   ├── fixes/                # Phase 16 safe remediation proposal service
 │   │   ├── llm/                  # Phase 13 provider, service, cache, and budget guard
+│   │   ├── sandbox/              # Phase 17 providers, isolation, patching, and verification
 │   │   └── tests/                # Deterministic orchestrator and LLM tests
 │   └── tests/                    # Backend API and database test suite
 ├── frontend/                     # [Planned] React/Vite web application
@@ -343,6 +349,8 @@ alembic upgrade head
 # 9. API Overview
 
 All API endpoints are versioned under `/api/v1`:
+
+Chat history is available under `/projects/{project_id}/incidents/{incident_id}/conversations`: create/list and retrieve/rename/delete conversations, and list/append messages at `/{conversation_id}/messages`. Conversation/message reads and writes require project access and validate the incident boundary; pagination is capped at 100.
 
 | Domain | Method | Endpoint | Description | Auth Required |
 |---|---|---|---|---|
@@ -524,7 +532,9 @@ Phase 9 establishes the investigation data contract and execution lifecycle.
 
 # 14. Investigation Pipeline: Phases 10+
 
-> **Status: Phases 10–16 implemented; Phases 17+ planned**
+> **Status: Phases 10–17 implemented; Phase 17 sandbox execution is opt-in**
+
+Chat history (Phase 16.1) is persisted alongside the investigation pipeline. It is incident-scoped and can reference an investigation, but does not gate or replace evidence collection, diagnosis, fix generation, or verification.
 
 When triggered, an investigation will execute the autonomous AI pipeline:
 
@@ -560,7 +570,7 @@ Fix Generator [Phase 16]
        │
        ▼
 Sandbox Verification [Phase 17]
-  Executes candidate fix in an isolated Docker container to verify test pass
+  Optionally executes trusted configured checks against the Phase 16 proposal in an isolated sandbox
        │
        ▼
 Human Approval Gate [Phase 18]
@@ -641,6 +651,29 @@ All Phase 15 automated tests use a fake provider. There is no real-model smoke t
 * **Testing**: Automated tests use fake providers only. They do not call Nebius or Tavily and consume no AI credits.
 
 ---
+
+## Phase 16.1 — Chat History
+
+> **Status: Implemented — durable conversation/message storage; no chat model call**
+
+Conversations are scoped to a project and incident and may optionally reference an investigation. User and assistant messages are persisted in chronological order. The feature provides paginated history, conversation listing, rename, and delete operations; it does not itself generate assistant responses or call an LLM.
+
+* **API**: Authenticated endpoints under `/api/v1/projects/{project_id}/incidents/{incident_id}/conversations`. Conversation reads/writes validate project and incident boundaries; an optional investigation must belong to that same incident and project.
+* **Database**: Alembic migration `0006_chat_history` creates `chat_conversations` and `chat_messages`, with project-scoped RLS, bounded message/title sizes, indexes, cascading cleanup, and a composite conversation/project foreign key for messages.
+* **Contract**: Only `user` and `assistant` roles are accepted; writes reject blank content and extra fields. Pagination is capped at 100 records.
+* **Integration boundary**: Chat history may retain context for prior Phase 15 diagnosis, Phase 16 proposals, and Phase 17 verification, but does not alter those contracts or execute actions.
+
+## Phase 17 — Sandbox Verification
+
+> **Status: Implemented — opt-in; Docker execution was not exercised during implementation**
+
+`SandboxVerificationService` consumes a validated Phase 16 `FixProposal`, copies a bounded repository workspace into a disposable temporary workspace, applies proposed file-state changes or a single-file unified diff, and evaluates expected results against bounded output from explicitly injected trusted argv commands.
+
+* **Provider boundary**: `SandboxProvider` separates orchestration from execution. `FakeSandboxProvider` supports deterministic tests. `DockerSandboxProvider` requires a digest-pinned, already-local image; it does not pull images.
+* **Isolation**: Docker runs with `--network none`, a read-only root filesystem, non-root UID, all Linux capabilities dropped, `no-new-privileges`, CPU/memory/process limits, and bounded tmpfs for workspace and temporary files. The source is copied into tmpfs; no host paths, Docker socket, host environment, ports, credentials, or production network are passed to the container.
+* **No command generation**: Verification commands are configured/injected separately from model-generated proposal text, validated as argv (never `shell=True`), and restricted to an executable allow-list. If there is no authorized source workspace, no trusted command mapping, or expected output cannot be observed, the result is `INCONCLUSIVE`.
+* **Safety and cleanup**: Workspace copying omits VCS metadata and credential paths; symlinks, traversal, absolute paths, sensitive targets, and unsupported patches are rejected. Execution and output are bounded. Provider cleanup runs after normal completion, failure, timeout, or cancellation; labeled stale containers can be removed through explicit orphan cleanup.
+* **Result**: Typed outcomes include `PASSED`, `FAILED`, `INCONCLUSIVE`, `TIMEOUT`, `CANCELLED`, `UNSAFE`, and `SETUP_FAILED`. Results are carried in the orchestrator VERIFY stage/context; no verification database table, public execution API, new LLM call, GitHub write, or production action is added.
 
 # 16. Local Development
 
@@ -830,7 +863,7 @@ Configure `.env` locally using `backend/.env.example` as a template:
 
 # 23. Current Limitations & Phase Status
 
-As of Phase 14 completion, the orchestration framework, operational investigation agents, bounded evidence processing pipeline, and opt-in LLM reasoning and knowledge-search layers are established:
+Phases 10–17 provide the orchestration framework, investigation agents, bounded evidence processing, opt-in reasoning/search/RCA/fix generation, incident-scoped chat history, and an opt-in sandbox verification stage:
 
 ### IMPLEMENTED (Phase 10 — DEVDOC Orchestrator)
 * **Orchestration Engine**: Central DEVDOCOrchestrator coordinating sequential stage execution, failure handling, and execution tracing (ackend/orchestrator/core/orchestrator.py).
@@ -881,8 +914,17 @@ un_investigation_orchestration in ackend/app/services/investigation.py.
 * **Analysis-only behavior**: The Diagnose stage exposes the structured result in orchestration output. There is no RCA database migration or public endpoint, and Phase 15 generates no fixes or production actions.
 * **Deterministic tests**: Phase 15 coverage uses fake LLM providers; normal tests make no Nebius/Tavily calls.
 
-### NOT IMPLEMENTED (Planned for Phase 17+)
-* **Sandbox Verification**: Isolated containerized verification of proposed fixes (Phase 17).
+### IMPLEMENTED (Phase 16.1 — Chat History)
+* **Conversation persistence**: Incident-scoped conversations and chronological user/assistant messages, with optional investigation linkage.
+* **API and access boundaries**: Bounded pagination and size validation; project ownership, incident membership, investigation linkage, and project RLS are enforced.
+* **No model dependency**: History persistence does not call an LLM or generate assistant messages.
+
+### IMPLEMENTED (Phase 17 — Sandbox Verification, opt-in)
+* **VERIFY stage**: Reuses the canonical Phase 10 stage and consumes only a validated Phase 16 `FixProposal`; verification commands and a trusted source workspace must be explicitly injected.
+* **Providers and controls**: Deterministic fake provider plus a digest-pinned Docker provider using no network, no host mounts, no inherited host environment, non-root identity, read-only root filesystem, resource limits, bounded output, and cleanup.
+* **Result and limits**: Typed PASS/FAIL/INCONCLUSIVE/TIMEOUT/CANCELLED/UNSAFE/SETUP_FAILED results are available in orchestration output. No provider is enabled by default; Docker was not run as part of implementation tests.
+
+### NOT IMPLEMENTED (Planned for Phase 18+)
 * **Human Approval & Audit**: Approval gates and production remediation (Phase 18+).
 
 ---
