@@ -82,6 +82,8 @@ class InvestigationContext:
     root_cause_analysis: RootCauseAnalysis | None = None
     fix_proposal: FixProposal | None = None
     sandbox_verification_result: SandboxVerificationResult | None = None
+    approval_artifact_id: uuid.UUID | None = None
+    approval_status: str = "not_requested"
     cancellation_token: CancellationToken = field(default_factory=CancellationToken)
 
     def __post_init__(self) -> None:
@@ -197,4 +199,8 @@ class InvestigationContext:
                 if self.sandbox_verification_result is not None
                 else None
             ),
+            "approval_artifact_id": (
+                str(self.approval_artifact_id) if self.approval_artifact_id else None
+            ),
+            "approval_status": self.approval_status,
         }

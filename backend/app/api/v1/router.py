@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.v1.approvals import router as approvals_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.github import router as github_router
@@ -20,6 +21,6 @@ v1_router.include_router(github_router)
 v1_router.include_router(incidents_router)
 v1_router.include_router(investigations_router)
 v1_router.include_router(chat_router)
-
+v1_router.include_router(approvals_router)
 
 

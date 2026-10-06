@@ -50,6 +50,7 @@ from app.models import (
     User,
     VCSProvider,
 )
+from app.models.approval import ApprovalStatus
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -627,8 +628,11 @@ async def test_approval_crud(
     appr = Approval(
         fix_proposal_id=fix_proposal.id,
         approver_id=user.id,
+        requested_by_id=user.id,
+        status=ApprovalStatus.APPROVED,
         decision=ApprovalDecision.APPROVED,
         rationale="Looks good to me.",
+        decided_at=datetime.now(UTC),
         review_note="Internal: checked with security team.",
     )
     db.add(appr)
@@ -647,12 +651,20 @@ async def test_approval_unique_per_approver_proposal(
     a1 = Approval(
         fix_proposal_id=fix_proposal.id,
         approver_id=user.id,
+        requested_by_id=user.id,
+        status=ApprovalStatus.APPROVED,
         decision=ApprovalDecision.APPROVED,
+        rationale="Approved after review.",
+        decided_at=datetime.now(UTC),
     )
     a2 = Approval(
         fix_proposal_id=fix_proposal.id,
         approver_id=user.id,
+        requested_by_id=user.id,
+        status=ApprovalStatus.REJECTED,
         decision=ApprovalDecision.REJECTED,
+        rationale="Rejected after careful review.",
+        decided_at=datetime.now(UTC),
     )
     db.add(a1)
     await db.commit()
@@ -669,12 +681,20 @@ async def test_two_different_approvers_allowed(
     a1 = Approval(
         fix_proposal_id=fix_proposal.id,
         approver_id=user.id,
+        requested_by_id=user.id,
+        status=ApprovalStatus.APPROVED,
         decision=ApprovalDecision.APPROVED,
+        rationale="Approved after review.",
+        decided_at=datetime.now(UTC),
     )
     a2 = Approval(
         fix_proposal_id=fix_proposal.id,
         approver_id=user2.id,
+        requested_by_id=user.id,
+        status=ApprovalStatus.APPROVED,
         decision=ApprovalDecision.APPROVED,
+        rationale="Approved after review.",
+        decided_at=datetime.now(UTC),
     )
     db.add(a1)
     db.add(a2)
@@ -774,6 +794,7 @@ async def test_audit_log_actor_set_null_on_user_delete(
 
     retrieved = await db.get(AuditLog, log_id)
     assert retrieved is not None
+    await db.refresh(retrieved)
     assert retrieved.actor_id is None
 
 
@@ -924,8 +945,11 @@ async def test_full_investigation_lifecycle(
     appr = Approval(
         fix_proposal_id=fp.id,
         approver_id=user.id,
+        requested_by_id=user.id,
+        status=ApprovalStatus.APPROVED,
         decision=ApprovalDecision.APPROVED,
         rationale="Verified fix in staging. LGTM.",
+        decided_at=datetime.now(UTC),
     )
     db.add(appr)
 

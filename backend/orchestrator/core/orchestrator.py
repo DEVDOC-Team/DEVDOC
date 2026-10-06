@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -64,6 +65,9 @@ class DEVDOCOrchestrator:
             | None
         ) = None,
         verification_commands: Sequence[VerificationCommand] = (),
+        approval_artifact_recorder: (
+            Callable[[InvestigationContext], Awaitable[uuid.UUID]] | None
+        ) = None,
     ) -> None:
         self.registry = (
             registry
@@ -75,6 +79,7 @@ class DEVDOCOrchestrator:
                 sandbox_verification_service=sandbox_verification_service,
                 sandbox_workspace_resolver=sandbox_workspace_resolver,
                 verification_commands=verification_commands,
+                approval_artifact_recorder=approval_artifact_recorder,
             )
         )
         self.workflow = workflow if workflow is not None else create_default_workflow()

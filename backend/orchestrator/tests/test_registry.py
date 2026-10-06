@@ -129,9 +129,10 @@ def test_default_stage_registry_factory() -> None:
         StageIdentifier.DIAGNOSE.value,
         StageIdentifier.PROPOSE.value,
         StageIdentifier.VERIFY.value,
+        StageIdentifier.HUMAN_APPROVAL.value,
         StageIdentifier.COMPLETE.value,
     ]
-    assert len(reg) == 7
+    assert len(reg) == 8
     for sid in expected_stages:
         assert reg.contains(sid)
         stage = reg.get(sid)

@@ -125,9 +125,9 @@ def valid_context() -> InvestigationContext:
 def test_orchestrator_initializes_with_defaults() -> None:
     orch = DEVDOCOrchestrator()
     assert orch.registry is not None
-    assert len(orch.registry) == 7
+    assert len(orch.registry) == 8
     assert orch.workflow.workflow_id == "default_investigation"
-    assert len(orch.workflow.stage_ids) == 7
+    assert len(orch.workflow.stage_ids) == 8
 
 
 def test_orchestrator_initializes_with_custom_registry_and_workflow() -> None:
@@ -188,10 +188,14 @@ async def test_default_investigation_sequential_execution(
         StageIdentifier.DIAGNOSE.value,
         StageIdentifier.PROPOSE.value,
         StageIdentifier.VERIFY.value,
+        StageIdentifier.HUMAN_APPROVAL.value,
         StageIdentifier.COMPLETE.value,
     ]
     assert [s.stage_id for s in result.stage_results] == expected_stages
     for s in result.stage_results:
+        if s.stage_id == StageIdentifier.HUMAN_APPROVAL.value:
+            assert s.status == ExecutionStatus.SKIPPED
+            continue
         assert s.status == ExecutionStatus.SUCCESS
         assert s.is_successful
         assert s.duration_ms >= 0.0
@@ -410,6 +414,7 @@ async def test_deterministic_execution_order() -> None:
             "diagnose",
             "propose",
             "verify",
+            "human_approval",
             "complete",
         ]
 

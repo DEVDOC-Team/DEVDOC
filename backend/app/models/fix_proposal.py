@@ -119,7 +119,7 @@ class FixProposal(UUIDMixin, TimestampMixin, Base):
         "Repository", foreign_keys=[target_repository_id]
     )
     approvals: Mapped[list[Approval]] = relationship(  # type: ignore[name-defined]
-        "Approval", back_populates="fix_proposal", cascade="all, delete-orphan"
+        "Approval", back_populates="fix_proposal", passive_deletes="all"
     )
 
     def __repr__(self) -> str:

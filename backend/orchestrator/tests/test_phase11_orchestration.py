@@ -101,7 +101,7 @@ async def test_full_pipeline_with_operational_agents(
 
     assert result.status == ExecutionStatus.SUCCESS
     assert result.is_successful
-    assert len(result.stage_results) == 7
+    assert len(result.stage_results) == 8
 
     # Find the collect stage
     collect_stage = result.get_stage_result("collect")

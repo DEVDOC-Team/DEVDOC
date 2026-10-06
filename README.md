@@ -2,7 +2,7 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate proposed fixes for later sandbox verification and human approval.
 
-> **Current Status**: Phases 1–16.1 and the opt-in Phase 17 sandbox verification engine are implemented. Phase 17 requires explicit provider, source-workspace, and trusted verification-command injection; it is not enabled by default. Human approval and production remediation remain upcoming.
+> **Current Status**: Phases 1–16.1, opt-in Phase 17 sandbox verification, and Phase 18 human approval and audit are implemented. Sandbox verification and artifact persistence require explicit dependency injection. Production remediation is not implemented.
 
 ---
 
@@ -34,7 +34,7 @@ Resolve
 
 * **Implemented Today (Phases 1–16.1)**: Backend foundation, Supabase database models and RLS, JWT authentication, project and incident APIs, persisted incident/investigation chat history, GitHub inspection, the orchestrator, evidence engine, opt-in LLM/search/RCA/fix generation, and non-executing remediation proposals.
 * **Implemented (Phase 17, opt-in)**: Provider-based sandbox verification with a deterministic fake provider and a Docker provider that disables networking, avoids host mounts/environment inheritance, and applies bounded resource controls.
-* **Planned (Phase 18+)**: Human approval, immutable approval audit, and production resolution.
+* **Implemented (Phase 18)**: Human-only review of passing sandbox results, fingerprint-bound approval requests, authorization, expiry, and append-only audit. No production execution or resolution is exposed.
 
 
 ## Why DEVDOC?
@@ -97,10 +97,10 @@ Authentication & JWT            Authoritative Project
              Sandbox Verification          [Phase 17 — Implemented, opt-in]
                        │
                        ▼
-             Human Approval Gate           [Phase 18 — Planned]
+             Human Approval Gate           [Phase 18 — Implemented]
                        │
                        ▼
-             Production Resolution         [Phase 18 — Planned]
+             Production Resolution         [Not Implemented]
 ```
 
 ---
@@ -130,7 +130,7 @@ Authentication & JWT            Authoritative Project
 | Root cause diagnosis | Evidence-grounded causal analysis (opt-in Nemotron) | Phase 15 |
 | Fix generation | RCA- and evidence-grounded proposals; no execution | Phase 16 |
 | Sandbox Execution | Isolated Docker / MicroVM Environments | Phase 17 |
-| Human approval and audit | Controlled approval and resolution workflow | Phase 18 |
+| Human approval and audit | Verification-bound human decisions and immutable audit; no production execution | Phase 18 |
 
 ---
 
@@ -158,7 +158,7 @@ DEVDOC is being delivered across 26 systematic development phases. Phases 1 thro
 | 16 | ✅ Complete | Fix Generator | Evidence-grounded remediation proposals with patch, secret, path, risk, rollback, and verification validation; no execution |
 | 16.1 | ✅ Complete | Chat History | Persisted, paginated, incident-scoped conversations and user/assistant messages, optionally linked to an investigation |
 | 17 | ✅ Implemented (opt-in) | Sandbox Verification | Isolated, bounded verification of Phase 16 proposals; injected trusted commands only; no production access |
-| 18 | ⏳ Planned | Human Approval & Audit | Interactive approval workflow, immutable audit trail, resolution |
+| 18 | ✅ Complete | Human Approval & Audit | Human-only decisions bound to passing Phase 17 verification; immutable audit; no production execution |
 | 19 | ⏳ Planned | Security Hardening | Rate limiting, header security, advanced secret sanitization |
 | 20 | ⏳ Planned | API Rate Limiting | Tenant-based request quotas, burst protection |
 | 21 | ⏳ Planned | Observability | Prometheus metrics, OpenTelemetry distributed tracing |
@@ -532,7 +532,7 @@ Phase 9 establishes the investigation data contract and execution lifecycle.
 
 # 14. Investigation Pipeline: Phases 10+
 
-> **Status: Phases 10–17 implemented; Phase 17 sandbox execution is opt-in**
+> **Status: Phases 10–18 implemented; sandbox verification and approval-artifact persistence are opt-in**
 
 Chat history (Phase 16.1) is persisted alongside the investigation pipeline. It is incident-scoped and can reference an investigation, but does not gate or replace evidence collection, diagnosis, fix generation, or verification.
 
@@ -574,11 +574,11 @@ Sandbox Verification [Phase 17]
        │
        ▼
 Human Approval Gate [Phase 18]
-  Interactive human-in-the-loop review of diagnosis, evidence, and proposed fix
+  Authorized human reviews the diagnosis, proposal, and exact passing sandbox result
        │
        ▼
-Production Resolution [Phase 18]
-  Fix applied via Pull Request or deployment rollback; incident marked RESOLVED
+Production Resolution [Not implemented]
+  No approval endpoint applies a patch, deploys, or changes incident state
 ```
 
 ---
@@ -675,6 +675,19 @@ Conversations are scoped to a project and incident and may optionally reference 
 * **Safety and cleanup**: Workspace copying omits VCS metadata and credential paths; symlinks, traversal, absolute paths, sensitive targets, and unsupported patches are rejected. Execution and output are bounded. Provider cleanup runs after normal completion, failure, timeout, or cancellation; labeled stale containers can be removed through explicit orphan cleanup.
 * **Result**: Typed outcomes include `PASSED`, `FAILED`, `INCONCLUSIVE`, `TIMEOUT`, `CANCELLED`, `UNSAFE`, and `SETUP_FAILED`. Results are carried in the orchestrator VERIFY stage/context; no verification database table, public execution API, new LLM call, GitHub write, or production action is added.
 
+## Phase 18 — Human Approval & Audit
+
+> **Status: Implemented — approval is human-only; no remediation execution**
+
+Phase 18 lets an authorized project owner or platform administrator review a fix proposal only after a complete Phase 17 sandbox verification has passed. Approval is a recorded decision, not an instruction that executes or deploys the proposal.
+
+* **Verified review bundle**: When the optional trusted artifact recorder is injected, the server persists immutable RCA, proposal, and verification snapshots with SHA-256 fingerprints. Requests bind to both the exact proposal and passing verification; the live stored proposal is checked again before a decision.
+* **Eligibility and lifecycle**: A selected supported RCA and matching proposal are required. Every verification step must pass, cleanup must complete, and the proposal must be no older than seven days. Pending requests expire after 24 hours; stale or expired requests cannot be approved, and terminal decisions cannot be replayed.
+* **Authorization and API**: Authenticated routes are under `/api/v1/projects/{project_id}/investigations/{investigation_id}/approvals` for request creation/listing, review, approve, reject, cancel, and audit history. The actor is always derived from authentication. Project owners and platform administrators may review; the requester may cancel, and platform administrators may cancel on their behalf.
+* **Audit and database protections**: Migration `0007_human_approval_audit` adds project-scoped RLS, approval-state constraints, concurrency protection, immutable artifact/audit rows, transition guards, and database-generated lifecycle audit events. Approval requests cannot be deleted.
+* **Orchestration boundary**: The VERIFY stage only persists review artifacts when a trusted recorder is explicitly injected. A passing result marks the proposal as awaiting human review; it does not itself approve anything. The default pipeline does not enable a sandbox provider or recorder.
+* **No production action**: There is no patch application, GitHub write, deployment, rollback, or incident resolution in this phase. Sandbox and approval tests use local fixtures; they do not execute production operations.
+
 # 16. Local Development
 
 ### Prerequisites
@@ -760,7 +773,20 @@ docker run --name devdoc-postgres \
   -e POSTGRES_DB=devdoc_test \
   -p 5433:5432 \
   -d postgres:16-alpine
+
+# Apply the schema to this disposable test database
+cd backend
+export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5433/devdoc_test"
+export DIRECT_DATABASE_URL=""
+python -m alembic upgrade head
+cd ..
+
+# Run the PostgreSQL RLS and approval-trigger integration tests
+export TEST_POSTGRESQL_URL="postgresql://postgres:postgres@localhost:5433/devdoc_test"
+python -m pytest backend/tests/test_rls_security.py -v
 ```
+
+The PostgreSQL RLS tests skip when `TEST_POSTGRESQL_URL` is unavailable. Use only a disposable local database for this test suite; its fixtures create records in the configured database.
 
 ---
 
@@ -868,7 +894,7 @@ Phases 10–17 provide the orchestration framework, investigation agents, bounde
 ### IMPLEMENTED (Phase 10 — DEVDOC Orchestrator)
 * **Orchestration Engine**: Central DEVDOCOrchestrator coordinating sequential stage execution, failure handling, and execution tracing (ackend/orchestrator/core/orchestrator.py).
 * **Investigation Context**: Strongly typed InvestigationContext with UUID validation, timestamping, audit logs, and strict credential/secret prevention (ackend/orchestrator/core/context.py).
-* **Stage Model**: Canonical 7-stage lifecycle contracts (INITIALIZE → COLLECT → ANALYZE → DIAGNOSE → PROPOSE → VERIFY → COMPLETE) (ackend/orchestrator/contracts/stage.py, ackend/orchestrator/stages/investigation.py).
+* **Stage Model**: Canonical 8-stage lifecycle contracts (INITIALIZE → COLLECT → ANALYZE → DIAGNOSE → PROPOSE → VERIFY → HUMAN_APPROVAL → COMPLETE) (ackend/orchestrator/contracts/stage.py, ackend/orchestrator/stages/investigation.py).
 * **Agent Abstraction & Mock Agent**: Standardized BaseAgent contract and deterministic MockInvestigationAgent with zero external network or AI token calls (ackend/orchestrator/contracts/agent.py, ackend/orchestrator/agents/base.py).
 * **Workflow Definition & Failure Policy**: WorkflowDefinition supporting deterministic FAIL_FAST halting of downstream stages upon critical errors (ackend/orchestrator/contracts/execution.py).
 * **Stage Registry**: Injected StageRegistry providing stage lookup, registration, duplicate detection, and deterministic ordering (ackend/orchestrator/stages/registry.py).
@@ -924,8 +950,11 @@ un_investigation_orchestration in ackend/app/services/investigation.py.
 * **Providers and controls**: Deterministic fake provider plus a digest-pinned Docker provider using no network, no host mounts, no inherited host environment, non-root identity, read-only root filesystem, resource limits, bounded output, and cleanup.
 * **Result and limits**: Typed PASS/FAIL/INCONCLUSIVE/TIMEOUT/CANCELLED/UNSAFE/SETUP_FAILED results are available in orchestration output. No provider is enabled by default; Docker was not run as part of implementation tests.
 
-### NOT IMPLEMENTED (Planned for Phase 18+)
-* **Human Approval & Audit**: Approval gates and production remediation (Phase 18+).
+### IMPLEMENTED (Phase 18 — Human Approval & Audit)
+* **Human-only decision workflow**: Authenticated project owners and platform administrators can request, review, approve, reject, or cancel eligible proposals. Approval requires a matching Phase 17 PASS result; no API accepts client-supplied actor identity or verification status.
+* **Bound artifacts and lifecycle**: Immutable RCA/proposal/verification snapshots and fingerprints bind each request to its review data. Requests expire after 24 hours; stale artifacts, failed verification, and replayed terminal decisions are rejected.
+* **Audit and database controls**: PostgreSQL RLS, append-only audit triggers, artifact immutability, state-transition guards, and a partial unique index protect the workflow. Migration `0007_human_approval_audit` follows chat-history migration `0006_chat_history`.
+* **No production remediation**: Approval does not apply patches, write to GitHub, deploy, roll back, or resolve incidents. Production resolution is not implemented.
 
 ---
 

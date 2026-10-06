@@ -21,6 +21,7 @@ class StageIdentifier(str, enum.Enum):
     DIAGNOSE = "diagnose"
     PROPOSE = "propose"
     VERIFY = "verify"
+    HUMAN_APPROVAL = "human_approval"
     COMPLETE = "complete"
 
 

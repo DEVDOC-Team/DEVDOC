@@ -64,11 +64,13 @@ class User(UUIDMixin, TimestampMixin, Base):
         "Project", back_populates="owner", cascade="all, delete-orphan"
     )
     audit_logs: Mapped[list[AuditLog]] = relationship(  # type: ignore[name-defined]
-        "AuditLog", back_populates="actor"
-        # No cascade — audit logs survive user deletion (actor SET NULL)
+        "AuditLog", back_populates="actor", passive_deletes="all"
     )
     approvals: Mapped[list[Approval]] = relationship(  # type: ignore[name-defined]
-        "Approval", back_populates="approver", cascade="all, delete-orphan"
+        "Approval",
+        back_populates="approver",
+        foreign_keys="Approval.approver_id",
+        passive_deletes="all",
     )
     # Investigations initiated by this user
     investigations: Mapped[list[Investigation]] = relationship(  # type: ignore[name-defined]

@@ -481,7 +481,9 @@ async def test_live_pg_grandchild_resources_isolation(pg_conn):
         inv_b_id,
     )
     await pg_conn.execute(
-        "INSERT INTO public.approvals (id, fix_proposal_id, approver_id, decision) VALUES ($1, $2, $3, 'approved')",
+        "INSERT INTO public.approvals "
+        "(id, fix_proposal_id, approver_id, requested_by_id, status, decision, decided_at) "
+        "VALUES ($1, $2, $3, $3, 'approved', 'approved', now())",
         appr_b_id,
         fp_b_id,
         user_b_id,
@@ -526,11 +528,119 @@ async def test_live_pg_grandchild_resources_isolation(pg_conn):
         # User A cannot INSERT approval under User B's fix_proposal
         with pytest.raises(asyncpg.PostgresError):
             await pg_conn.execute(
-                "INSERT INTO public.approvals (id, fix_proposal_id, approver_id, decision) VALUES ($1, $2, $3, 'approved')",
+                "INSERT INTO public.approvals "
+                "(id, fix_proposal_id, approver_id, requested_by_id, status, decision, decided_at) "
+                "VALUES ($1, $2, $3, $3, 'approved', 'approved', now())",
                 uuid.uuid4(),
                 fp_b_id,
                 user_a_id,
             )
+
+
+@pytest.mark.asyncio
+async def test_live_pg_approval_actor_guard_and_lifecycle_audit(pg_conn):
+    """Enforce authenticated decision identity and database-generated audit events."""
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    incident_id = uuid.uuid4()
+    investigation_id = uuid.uuid4()
+    proposal_id = uuid.uuid4()
+    verification_id = uuid.uuid4()
+    approval_id = uuid.uuid4()
+    fingerprint = "a" * 64
+
+    await pg_conn.execute(
+        "INSERT INTO public.users (id, email) VALUES ($1, $2)",
+        user_id,
+        f"approval_{user_id.hex[:8]}@example.com",
+    )
+    await pg_conn.execute(
+        "INSERT INTO public.projects (id, owner_id, name, slug) VALUES ($1, $2, 'Approval project', $3)",
+        project_id,
+        user_id,
+        f"approval_{project_id.hex[:8]}",
+    )
+    await pg_conn.execute(
+        "INSERT INTO public.incidents (id, project_id, title) VALUES ($1, $2, 'Approval incident')",
+        incident_id,
+        project_id,
+    )
+    await pg_conn.execute(
+        "INSERT INTO public.investigations (id, project_id, incident_id) VALUES ($1, $2, $3)",
+        investigation_id,
+        project_id,
+        incident_id,
+    )
+    await pg_conn.execute(
+        "INSERT INTO public.fix_proposals (id, investigation_id, title) VALUES ($1, $2, 'Verified fix')",
+        proposal_id,
+        investigation_id,
+    )
+    await pg_conn.execute(
+        "INSERT INTO public.approval_artifacts "
+        "(id, project_id, investigation_id, fix_proposal_id, verification_status, "
+        "root_cause_fingerprint, proposal_fingerprint, proposal_record_fingerprint, "
+        "verification_fingerprint, root_cause_snapshot, proposal_snapshot, verification_snapshot) "
+        "VALUES ($1, $2, $3, $4, 'passed', $5, $5, $5, $5, '{}', '{}', '{}')",
+        verification_id,
+        project_id,
+        investigation_id,
+        proposal_id,
+        fingerprint,
+    )
+    await pg_conn.execute(
+        "INSERT INTO public.approvals "
+        "(id, fix_proposal_id, requested_by_id, verification_id, status, "
+        "proposal_fingerprint, verification_fingerprint, expires_at) "
+        "VALUES ($1, $2, $3, $4, 'pending', $5, $5, now() + interval '1 day')",
+        approval_id,
+        proposal_id,
+        user_id,
+        verification_id,
+        fingerprint,
+    )
+
+    async with pg_conn.transaction():
+        await pg_conn.execute("SET LOCAL ROLE authenticated")
+        await pg_conn.execute(f"SET LOCAL request.jwt.claim.sub = '{user_id}'")
+        with pytest.raises(asyncpg.PostgresError, match="Decision actor must match"):
+            await pg_conn.execute(
+                "UPDATE public.approvals SET status = 'approved', decision = 'approved', "
+                "approver_id = $2, rationale = 'Approved after verified review.', decided_at = now() "
+                "WHERE id = $1",
+                approval_id,
+                uuid.uuid4(),
+            )
+
+    async with pg_conn.transaction():
+        await pg_conn.execute("SET LOCAL ROLE authenticated")
+        await pg_conn.execute(f"SET LOCAL request.jwt.claim.sub = '{user_id}'")
+        assert await pg_conn.execute(
+            "UPDATE public.approvals SET status = 'approved', decision = 'approved', "
+            "approver_id = $2, rationale = 'Approved after verified review.', decided_at = now() "
+            "WHERE id = $1",
+            approval_id,
+            user_id,
+        ) == "UPDATE 1"
+
+    approval = await pg_conn.fetchrow(
+        "SELECT status, approver_id FROM public.approvals WHERE id = $1",
+        approval_id,
+    )
+    assert approval["status"] == "approved"
+    assert approval["approver_id"] == user_id
+
+    audit = await pg_conn.fetch(
+        "SELECT action, actor_id, diff FROM public.audit_logs "
+        "WHERE entity_type = 'approval' AND entity_id = $1 ORDER BY created_at",
+        approval_id,
+    )
+    assert [row["action"] for row in audit] == [
+        "approval.requested",
+        "approval.approved",
+    ]
+    assert all(row["actor_id"] == user_id for row in audit)
+    assert "Approved after verified review." in audit[-1]["diff"]
 
 
 @pytest.mark.asyncio

@@ -1,16 +1,18 @@
 """Standard investigation stages.
 
 Implements the default investigation lifecycle stages for DEVDOC:
-INITIALIZE → COLLECT → ANALYZE → DIAGNOSE → PROPOSE → VERIFY → COMPLETE
+INITIALIZE → COLLECT → ANALYZE → DIAGNOSE → PROPOSE → VERIFY → HUMAN_APPROVAL → COMPLETE
 
 Note: Phase 10 establishes the orchestration contracts. Operational agents, structured LLM
 reasoning (Phase 13), Tavily search (Phase 14), and the root-cause engine (Phase 15) are
-integrated; fix generation (Phase 16) and sandbox verification (Phase 17) remain future work.
+integrated; fix generation (Phase 16), sandbox verification (Phase 17), and human approval
+(Phase 18) are opt-in integrations.
 """
 
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,7 +24,7 @@ from orchestrator.contracts.stage import BaseStage, StageIdentifier
 from orchestrator.core.context import InvestigationContext
 from orchestrator.core.result import AgentResult, ExecutionStatus, StageResult
 from orchestrator.evidence.engine import EvidenceEngine
-from orchestrator.fixes.models import FixGenerationResult, FixGenerationStatus
+from orchestrator.fixes.models import FixGenerationResult, FixGenerationStatus, FixProposal
 from orchestrator.fixes.service import FixGenerationError, FixGeneratorService
 from orchestrator.knowledge.service import KnowledgeSearchError, KnowledgeSearchService
 from orchestrator.llm.service import LLMService, LLMServiceError
@@ -463,10 +465,14 @@ class VerifyStage(BaseStage):
             | None
         ) = None,
         verification_commands: Sequence[VerificationCommand] = (),
+        approval_artifact_recorder: (
+            Callable[[InvestigationContext], Awaitable[uuid.UUID]] | None
+        ) = None,
     ) -> None:
         self.sandbox_verification_service = sandbox_verification_service
         self.workspace_resolver = workspace_resolver
         self.verification_commands = list(verification_commands)
+        self.approval_artifact_recorder = approval_artifact_recorder
 
     @property
     def stage_id(self) -> str:
@@ -494,6 +500,7 @@ class VerifyStage(BaseStage):
             output_meta["verification_status"] = "skipped_no_fix_proposal"
         elif self.sandbox_verification_service is None:
             output_meta["verification_status"] = "inconclusive"
+            context.approval_status = "blocked_verification_unavailable"
             warnings.append("Sandbox verification provider is not configured")
             stage_status = ExecutionStatus.SKIPPED
         else:
@@ -513,6 +520,19 @@ class VerifyStage(BaseStage):
             context.sandbox_verification_result = result
             output_meta["verification"] = result.model_dump(mode="json")
             output_meta["verification_status"] = result.status.value
+            if self.approval_artifact_recorder is None:
+                context.approval_status = "artifact_not_persisted"
+            else:
+                context.approval_artifact_id = await self.approval_artifact_recorder(context)
+                context.approval_status = (
+                    "awaiting_human_review"
+                    if result.status == VerificationStatus.PASSED
+                    else "blocked_by_verification"
+                )
+            output_meta["approval_artifact_id"] = (
+                str(context.approval_artifact_id) if context.approval_artifact_id else None
+            )
+            output_meta["approval_status"] = context.approval_status
             if result.status == VerificationStatus.INCONCLUSIVE:
                 warnings.append(result.summary)
                 stage_status = ExecutionStatus.SKIPPED
@@ -560,6 +580,8 @@ class CompleteStage(BaseStage):
             "completion_status": "finalized",
             "total_warnings": len(context.warnings),
             "total_errors": len(context.errors),
+            "approval_status": context.approval_status,
+            "human_approval_required": context.fix_proposal is not None,
         }
         context.record_stage_complete(self.stage_id)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
@@ -571,6 +593,57 @@ class CompleteStage(BaseStage):
             started_at=started_at,
             completed_at=datetime.now(UTC),
             duration_ms=duration_ms,
+        )
+
+
+class HumanApprovalGateStage(BaseStage):
+    """Marks verified proposals as awaiting an external human decision."""
+
+    @property
+    def stage_id(self) -> str:
+        return StageIdentifier.HUMAN_APPROVAL.value
+
+    @property
+    def name(self) -> str:
+        return "Human Approval Gate"
+
+    @property
+    def description(self) -> str:
+        return "Requires an authorized human decision; sandbox success is not approval."
+
+    async def execute(self, context: InvestigationContext) -> StageResult:
+        started_at = datetime.now(UTC)
+        context.record_stage_start(self.stage_id)
+        proposal = context.fix_proposal
+        verification = context.sandbox_verification_result
+        if proposal is None:
+            context.approval_status = "not_applicable"
+            gate_status = ExecutionStatus.SKIPPED
+        elif verification is None or verification.status != VerificationStatus.PASSED:
+            context.approval_status = "blocked_by_verification"
+            gate_status = ExecutionStatus.SKIPPED
+        elif context.approval_artifact_id is None:
+            context.approval_status = "artifact_not_persisted"
+            gate_status = ExecutionStatus.SKIPPED
+        else:
+            context.approval_status = "awaiting_human_review"
+            gate_status = ExecutionStatus.SKIPPED
+        context.record_stage_complete(self.stage_id)
+        return StageResult(
+            stage_id=self.stage_id,
+            status=gate_status,
+            output_metadata={
+                "approval_status": context.approval_status,
+                "approval_artifact_id": (
+                    str(context.approval_artifact_id)
+                    if context.approval_artifact_id is not None
+                    else None
+                ),
+                "human_decision_required": context.approval_status
+                == "awaiting_human_review",
+            },
+            started_at=started_at,
+            completed_at=datetime.now(UTC),
         )
 
 
@@ -588,8 +661,11 @@ def create_default_stage_registry(
         | None
     ) = None,
     verification_commands: Sequence[VerificationCommand] = (),
+    approval_artifact_recorder: (
+        Callable[[InvestigationContext], Awaitable[uuid.UUID]] | None
+    ) = None,
 ) -> StageRegistry:
-    """Build a StageRegistry pre-populated with all 7 canonical investigation stages."""
+    """Build a StageRegistry pre-populated with all 8 canonical investigation stages."""
     registry = StageRegistry()
     registry.register(InitializeStage())
     registry.register(CollectEvidenceStage())
@@ -606,8 +682,10 @@ def create_default_stage_registry(
             sandbox_verification_service,
             sandbox_workspace_resolver,
             verification_commands,
+            approval_artifact_recorder,
         )
     )
+    registry.register(HumanApprovalGateStage())
     registry.register(CompleteStage())
     return registry
 
@@ -617,7 +695,7 @@ def create_default_workflow() -> WorkflowDefinition:
     return WorkflowDefinition(
         workflow_id="default_investigation",
         name="Default Investigation Pipeline",
-        description="Standard 7-stage DEVDOC root cause investigation workflow",
+        description="Standard 8-stage DEVDOC root cause investigation workflow",
         stage_ids=[
             StageIdentifier.INITIALIZE.value,
             StageIdentifier.COLLECT.value,
@@ -625,6 +703,7 @@ def create_default_workflow() -> WorkflowDefinition:
             StageIdentifier.DIAGNOSE.value,
             StageIdentifier.PROPOSE.value,
             StageIdentifier.VERIFY.value,
+            StageIdentifier.HUMAN_APPROVAL.value,
             StageIdentifier.COMPLETE.value,
         ],
         failure_policy=FailurePolicy.FAIL_FAST,
@@ -648,6 +727,9 @@ def create_operational_stage_registry(
         | None
     ) = None,
     verification_commands: Sequence[VerificationCommand] = (),
+    approval_artifact_recorder: (
+        Callable[[InvestigationContext], Awaitable[uuid.UUID]] | None
+    ) = None,
 ) -> StageRegistry:
     """Build a StageRegistry configured with operational investigation agents."""
     agents: list[BaseAgent] = []
@@ -674,7 +756,9 @@ def create_operational_stage_registry(
             sandbox_verification_service,
             sandbox_workspace_resolver,
             verification_commands,
+            approval_artifact_recorder,
         )
     )
+    registry.register(HumanApprovalGateStage())
     registry.register(CompleteStage())
     return registry

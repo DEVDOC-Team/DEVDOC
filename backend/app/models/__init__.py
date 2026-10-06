@@ -8,7 +8,8 @@ response serialisation in later phases.
 """
 
 from app.db.base import Base
-from app.models.approval import Approval, ApprovalDecision
+from app.models.approval import Approval, ApprovalDecision, ApprovalStatus
+from app.models.approval_artifact import ApprovalArtifact
 from app.models.audit_log import AuditLog, AuditOutcome
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.deployment import Deployment, DeploymentStatus
@@ -35,6 +36,7 @@ __all__ = [
     "Deployment",
     "FixProposal",
     "Approval",
+    "ApprovalArtifact",
     "AuditLog",
     "ChatConversation",
     "ChatMessage",
@@ -48,6 +50,6 @@ __all__ = [
     "DeploymentStatus",
     "FixStatus",
     "ApprovalDecision",
+    "ApprovalStatus",
     "AuditOutcome",
 ]
-

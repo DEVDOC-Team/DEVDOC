@@ -37,7 +37,7 @@ import enum
 import uuid
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, Index, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -115,3 +115,13 @@ class AuditLog(UUIDMixin, TimestampMixin, Base):
             f"<AuditLog id={self.id!s:.8} action={self.action!r} "
             f"outcome={self.outcome!r}>"
         )
+
+
+@event.listens_for(AuditLog, "before_update")
+def _prevent_audit_update(_mapper: object, _connection: object, _target: AuditLog) -> None:
+    raise ValueError("Audit records are immutable")
+
+
+@event.listens_for(AuditLog, "before_delete")
+def _prevent_audit_delete(_mapper: object, _connection: object, _target: AuditLog) -> None:
+    raise ValueError("Audit records are immutable")
