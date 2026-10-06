@@ -1,8 +1,8 @@
 # DEVDOC
 
-**DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate verified fixes with human-in-the-loop approval.
+**DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate proposed fixes for later sandbox verification and human approval.
 
-> **Current Status**: Phases 1–15 are implemented, including opt-in Nemotron/Nebius reasoning, Tavily knowledge search, and evidence-grounded root-cause analysis. Phase 16+ is upcoming.
+> **Current Status**: Phases 1–16 are implemented, including opt-in Nemotron/Nebius reasoning, Tavily knowledge search, evidence-grounded root-cause analysis, and non-executing remediation proposals. Sandbox verification and human approval remain upcoming.
 
 ---
 
@@ -32,8 +32,8 @@ Human Approval
 Resolve
 ```
 
-* **Implemented Today (Phases 1–15)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, the investigation orchestrator, operational agents, the bounded evidence engine, opt-in structured Nemotron/Nebius reasoning, opt-in Tavily knowledge search, and evidence-grounded root-cause analysis.
-* **Planned (Phase 16+)**: Fix generation, sandbox verification, and interactive human-in-the-loop approval gates.
+* **Implemented Today (Phases 1–16)**: Production-grade backend foundation, Supabase database models, Row Level Security (RLS) policies, JWT authentication, user and project management, GitHub OAuth and repository inspection, incident management, the investigation orchestrator, operational agents, the bounded evidence engine, opt-in structured Nemotron/Nebius reasoning, opt-in Tavily knowledge search, evidence-grounded root-cause analysis, and opt-in safe remediation proposals.
+* **Planned (Phase 17+)**: Isolated sandbox verification and interactive human-in-the-loop approval gates.
 
 
 ## Why DEVDOC?
@@ -90,7 +90,7 @@ Authentication & JWT            Authoritative Project
                Root Cause Engine           [Phase 15 — Implemented, opt-in]
                        │
                        ▼
-                 Fix Generator             [Phase 16 — Planned]
+            Fix Proposal Generator          [Phase 16 — Implemented, opt-in]
                        │
                        ▼
              Sandbox Verification          [Phase 17 — Planned]
@@ -127,7 +127,7 @@ Authentication & JWT            Authoritative Project
 | Component | Planned Technology | Target Phase |
 |---|---|---|
 | Root cause diagnosis | Evidence-grounded causal analysis (opt-in Nemotron) | Phase 15 |
-| Fix generation | Validated patch/configuration proposals | Phase 16 |
+| Fix generation | RCA- and evidence-grounded proposals; no execution | Phase 16 |
 | Sandbox Execution | Isolated Docker / MicroVM Environments | Phase 17 |
 | Human approval and audit | Controlled approval and resolution workflow | Phase 18 |
 
@@ -154,7 +154,7 @@ DEVDOC is being delivered across 26 systematic development phases. Phases 1 thro
 | 13 | ✅ Complete | NVIDIA Nemotron + Nebius | Provider abstraction, structured evidence reasoning, budget guardrails, token/cost tracking |
 | 14 | ✅ Complete | Knowledge Search / Tavily | Bounded, opt-in external knowledge retrieval with provenance |
 | 15 | ✅ Complete | Root Cause Engine | Evidence-referenced hypotheses, contradictions, confidence, and cautious cause selection |
-| 16 | ⏳ Planned | Fix Generator | Automated patch generation, configuration remediation diffs |
+| 16 | ✅ Complete | Fix Generator | Evidence-grounded remediation proposals with patch, secret, path, risk, rollback, and verification validation; no execution |
 | 17 | ⏳ Planned | Sandbox Verification | Isolated container execution, test validation of proposed fixes |
 | 18 | ⏳ Planned | Human Approval & Audit | Interactive approval workflow, immutable audit trail, resolution |
 | 19 | ⏳ Planned | Security Hardening | Rate limiting, header security, advanced secret sanitization |
@@ -236,6 +236,7 @@ devdoc/
 │   │       └── user.py
 │   ├── orchestrator/
 │   │   ├── evidence/             # Phase 12 evidence engine and contracts
+│   │   ├── fixes/                # Phase 16 safe remediation proposal service
 │   │   ├── llm/                  # Phase 13 provider, service, cache, and budget guard
 │   │   └── tests/                # Deterministic orchestrator and LLM tests
 │   └── tests/                    # Backend API and database test suite
@@ -523,7 +524,7 @@ Phase 9 establishes the investigation data contract and execution lifecycle.
 
 # 14. Investigation Pipeline: Phases 10+
 
-> **Status: Phases 10–15 implemented; Phases 16+ planned**
+> **Status: Phases 10–16 implemented; Phases 17+ planned**
 
 When triggered, an investigation will execute the autonomous AI pipeline:
 
@@ -555,7 +556,7 @@ Root Cause Engine [Phase 15]
        │
        ▼
 Fix Generator [Phase 16]
-  Produces code patch diffs, config adjustments, or rollback commands
+  Produces validated, unexecuted proposals; never applies patches or runs commands
        │
        ▼
 Sandbox Verification [Phase 17]
@@ -624,6 +625,20 @@ Phase 15 evaluates ranked incident-specific hypotheses from the Phase 12 evidenc
 * **No persistence or actions**: Analysis is returned in the orchestration stage result; it does not mutate evidence or add database tables/migrations. There is no public RCA endpoint. Phase 15 does not generate patches, commands, or fixes, execute operations, modify production or GitHub, or bypass approval.
 
 All Phase 15 automated tests use a fake provider. There is no real-model smoke test enabled by default; a real request occurs only when an operator explicitly constructs and injects the configured Nebius service, and it consumes the existing Phase 13 budget.
+
+## Phase 16 — Fix Generator
+
+> **Status: Implemented — opt-in proposals only; no remediation is executed**
+
+`FixGeneratorService` is injected into `ProposeFixStage` and accepts only the current validated Phase 15 `RootCauseAnalysis` and matching Phase 12 `EvidenceCollection`. It returns `insufficient_information` without a model request unless the RCA uniquely selected a root cause with observed supporting evidence. The default stage registry has no fix generator injected and remains offline.
+
+* **Proposal contract**: `FixProposal` includes the selected root-cause ID, investigation and execution IDs, summary, evidence references, affected components, change type, proposed changes, prerequisites, risks, confidence, verification steps, rollback plan, generation time, and safe model usage metadata. Every result requires human approval; any code diff is marked `PROPOSED / UNVERIFIED`.
+* **Evidence and reference checks**: Root-cause identity and RCA evidence references are checked against the active analysis and evidence snapshot. Each change must cite observed evidence supporting the selected cause. External knowledge IDs must resolve to external evidence, and external content is explicitly marked untrusted in the prompt.
+* **Patch and secret safety**: File targets are accepted only when an exact repository-relative path is present in inspected-file evidence. Absolute paths, traversal, unverified targets, binary or oversized diffs, excessive changed lines, recognized secret patterns, and recognized destructive operations are rejected without returning a proposal.
+* **Risk, rollback, and verification**: Database, dependency, infrastructure, and deployment changes have a deterministic minimum HIGH risk. HIGH, CRITICAL, and UNKNOWN risks require human review; all statuses remain proposals. Rollback and measurable verification plans are mandatory.
+* **Cost and cancellation**: Uses the injected Phase 13 `LLMService` for the existing global budget, token bounds, retries, timeout, TTL cache, and cancellation checks. A per-investigation generation-count limit bounds repeated proposals. No separate provider, cache, or monetary budget system is created.
+* **No execution or persistence**: There is no public fix endpoint, persistence, migration, GitHub write, shell execution, production access, deployment, or patch application. Phase 16 returns inert data for future Phase 17 sandbox integration; it does not implement sandbox verification or Phase 18 approval.
+* **Testing**: Automated tests use fake providers only. They do not call Nebius or Tavily and consume no AI credits.
 
 ---
 
@@ -866,8 +881,7 @@ un_investigation_orchestration in ackend/app/services/investigation.py.
 * **Analysis-only behavior**: The Diagnose stage exposes the structured result in orchestration output. There is no RCA database migration or public endpoint, and Phase 15 generates no fixes or production actions.
 * **Deterministic tests**: Phase 15 coverage uses fake LLM providers; normal tests make no Nebius/Tavily calls.
 
-### NOT IMPLEMENTED (Planned for Phase 16+)
-* **Fix Generator**: Automated code patch and configuration generation (Phase 16).
+### NOT IMPLEMENTED (Planned for Phase 17+)
 * **Sandbox Verification**: Isolated containerized verification of proposed fixes (Phase 17).
 * **Human Approval & Audit**: Approval gates and production remediation (Phase 18+).
 
