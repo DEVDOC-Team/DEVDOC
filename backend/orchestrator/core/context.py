@@ -16,6 +16,8 @@ from orchestrator.core.errors import ContextValidationError
 
 if TYPE_CHECKING:
     from orchestrator.evidence.models import EvidenceCollection
+    from orchestrator.fixes.models import FixProposal
+    from orchestrator.rca.models import RootCauseAnalysis
 
 # Disallowed keys to prevent accidental secret leakage into context
 FORBIDDEN_KEY_PATTERNS = {
@@ -76,6 +78,8 @@ class InvestigationContext:
     errors: list[str] = field(default_factory=list)
     execution_timestamps: dict[str, datetime] = field(default_factory=dict)
     evidence_collection: EvidenceCollection | None = None
+    root_cause_analysis: RootCauseAnalysis | None = None
+    fix_proposal: FixProposal | None = None
     cancellation_token: CancellationToken = field(default_factory=CancellationToken)
 
     def __post_init__(self) -> None:
@@ -162,7 +166,6 @@ class InvestigationContext:
         ref_dict = {"reference_id": ref} if isinstance(ref, str) else dict(ref)
         self._check_secrets_recursive(ref_dict, "evidence_reference")
         self.collected_evidence_references.append(ref_dict)
-
 
     def record_agent_output(self, agent_id: str, output: Any) -> None:
         """Safely record an agent's output metadata."""
