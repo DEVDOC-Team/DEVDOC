@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,19 +22,43 @@ class Settings(BaseSettings):
     app_name: str = Field(default="DEVDOC API")
     app_version: str = Field(default="0.1.0")
     environment: str = Field(default="development")
-    debug: bool = Field(default=True)
+    debug: bool = Field(default=False)
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
 
     # ------------------------------------------------------------------ #
+    # HTTP security
+    # ------------------------------------------------------------------ #
+    trusted_hosts: list[str] = Field(default_factory=list)
+    security_headers_enabled: bool = Field(default=True)
+    hsts_max_age_seconds: int = Field(default=31536000, ge=0, le=31536000)
+
+    @field_validator("trusted_hosts", mode="before")
+    @classmethod
+    def parse_trusted_hosts(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [host.strip() for host in value.split(",") if host.strip()]
+        elif isinstance(value, list):
+            value = [str(host).strip() for host in value if str(host).strip()]
+        else:
+            raise ValueError("Trusted hosts must be a list or comma-separated string")
+
+        normalized: list[str] = []
+        for host in value:
+            candidate = host.strip().lower()
+            if not candidate:
+                continue
+            if candidate.startswith("."):
+                raise ValueError("Trusted host entries must not start with a dot")
+            normalized.append(candidate)
+        return normalized
+
+    # ------------------------------------------------------------------ #
     # CORS
     # ------------------------------------------------------------------ #
-    cors_origins: list[str] = Field(
-        default_factory=lambda: [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-        ]
-    )
+    cors_origins: list[str] = Field(default_factory=list)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -46,6 +70,14 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return [str(origin).strip() for origin in value if str(origin).strip()]
         return value
+
+    @model_validator(mode="after")
+    def validate_runtime_security_defaults(self) -> "Settings":
+        if self.is_production and not self.trusted_hosts:
+            raise ValueError("TRUSTED_HOSTS must be configured when ENVIRONMENT=production")
+        if not self.is_production and not self.trusted_hosts:
+            self.trusted_hosts = ["localhost", "127.0.0.1", "[::1]", "testserver"]
+        return self
 
     # ------------------------------------------------------------------ #
     # Database — PostgreSQL / Supabase

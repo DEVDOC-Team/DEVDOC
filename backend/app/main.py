@@ -2,13 +2,35 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.exceptions import generic_exception_handler, http_exception_handler
 from app.core.logging import logger
+
+
+async def security_headers_middleware(request: Request, call_next):
+    """Add conservative security headers to every HTTP response."""
+    response = await call_next(request)
+    if not settings.security_headers_enabled:
+        return response
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("X-XSS-Protection", "0")
+    response.headers.setdefault("Cache-Control", "no-store")
+
+    if request.url.scheme == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            f"max-age={settings.hsts_max_age_seconds}; includeSubDomains",
+        )
+
+    return response
 
 
 @asynccontextmanager
@@ -22,19 +44,27 @@ app = FastAPI(
     title=settings.app_name,
     description="AI-powered DevOps and SRE incident investigation backend foundation.",
     version=settings.app_version,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
     lifespan=lifespan,
 )
 
+allowed_hosts = settings.trusted_hosts
+if not allowed_hosts:
+    if settings.is_production:
+        raise RuntimeError("Trusted hosts must be configured before the app starts in production mode")
+    allowed_hosts = ["localhost", "127.0.0.1", "[::1]", "testserver"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=settings.cors_origins if settings.cors_origins else ([] if settings.is_production else ["http://localhost:5173", "http://127.0.0.1:5173"]),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+app.middleware("http")(security_headers_middleware)
 
 app.include_router(api_router)
 
@@ -45,7 +75,7 @@ async def root() -> dict[str, str]:
     return {
         "service": settings.app_name,
         "status": "ok",
-        "docs_url": "/docs",
+        "docs_url": "/docs" if not settings.is_production else None,
         "health_url": "/api/v1/health",
         "ready_url": "/api/v1/ready",
     }
