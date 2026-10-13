@@ -2,7 +2,7 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate proposed fixes for later sandbox verification and human approval.
 
-> **Current Status**: Phases 1–16.1, opt-in Phase 17 sandbox verification, and Phase 18 human approval and audit are implemented. Sandbox verification and artifact persistence require explicit dependency injection. Production remediation is not implemented.
+> **Current Status**: Phases 1–16.1, opt-in Phase 17 sandbox verification, and Phase 18 human approval and audit are implemented. Targeted Phase 19 security hardening is documented below; it is not a full security certification. Sandbox verification and artifact persistence require explicit dependency injection. Production remediation is not implemented.
 
 ---
 
@@ -316,6 +316,10 @@ PostgreSQL Engine with Supabase RLS
 ### Secret Sanitization & Audit Logging
 * **Zero Credential Exposure**: JWTs, GitHub access tokens, and OAuth secrets are never logged or returned in API responses.
 * **Structured Audit Metadata**: Audit logs record timestamps, actor IDs, project IDs, incident IDs, investigation IDs, and status transition outcomes.
+* **Approval and Audit Write Boundary**: Migration `0008_restrict_client_approval_audit_writes` removes direct authenticated-client approval creation/decision and audit-event insertion. Scoped reads remain; approval lifecycle audit entries are database-generated.
+* **Deployment Caveat**: RLS does not constrain database owners or roles with `BYPASSRLS`. Use a server-only database identity, apply all migrations, and verify the runtime database role and proxy configuration for the deployment.
+
+The Phase 19 audit summary, threat model, deployment assumptions, and known limitations are in [SECURITY.md](./SECURITY.md).
 
 ---
 
@@ -687,6 +691,12 @@ Phase 18 lets an authorized project owner or platform administrator review a fix
 * **Audit and database protections**: Migration `0007_human_approval_audit` adds project-scoped RLS, approval-state constraints, concurrency protection, immutable artifact/audit rows, transition guards, and database-generated lifecycle audit events. Approval requests cannot be deleted.
 * **Orchestration boundary**: The VERIFY stage only persists review artifacts when a trusted recorder is explicitly injected. A passing result marks the proposal as awaiting human review; it does not itself approve anything. The default pipeline does not enable a sandbox provider or recorder.
 * **No production action**: There is no patch application, GitHub write, deployment, rollback, or incident resolution in this phase. Sandbox and approval tests use local fixtures; they do not execute production operations.
+
+## Phase 19 — Security Hardening
+
+> **Status: Targeted changes implemented — database write-boundary hardening only; broader security controls are not certified**
+
+Migration `0008_restrict_client_approval_audit_writes` closes authenticated-role direct writes that could forge audit events or record approval decisions without the service's verification eligibility checks. It preserves project-scoped reads and database-generated approval lifecycle events. See [SECURITY.md](./SECURITY.md) for the audit findings, threat model, deployment assumptions, tested scope, and remaining limitations. Apply migrations through the latest revision; PostgreSQL integration tests require an isolated test database.
 
 # 16. Local Development
 

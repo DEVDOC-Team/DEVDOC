@@ -151,9 +151,11 @@ def test_migration_chain_files_exist():
     versions_dir = Path(__file__).resolve().parents[1] / "app" / "db" / "migrations" / "versions"
     v1 = versions_dir / "0001_initial_schema.py"
     v2 = versions_dir / "0002_row_level_security.py"
+    v8 = versions_dir / "0008_restrict_client_approval_audit_writes.py"
 
     assert v1.is_file(), "0001_initial_schema.py migration missing"
     assert v2.is_file(), "0002_row_level_security.py migration missing"
+    assert v8.is_file(), "0008_restrict_client_approval_audit_writes.py migration missing"
 
 
 def test_policy_definitions_security_audit():
@@ -180,6 +182,22 @@ def test_policy_definitions_security_audit():
     # Ensure immutability for audit_logs (append-only)
     assert "audit_logs_update_policy" not in content
     assert "audit_logs_delete_policy" not in content
+
+
+def test_phase19_removes_direct_approval_and_audit_writes():
+    """Ensure the hardening migration removes client-controlled writes."""
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "db"
+        / "migrations"
+        / "versions"
+        / "0008_restrict_client_approval_audit_writes.py"
+    )
+    content = migration_path.read_text(encoding="utf-8")
+    assert 'DROP POLICY IF EXISTS approvals_insert_policy ON public.approvals' in content
+    assert 'DROP POLICY IF EXISTS approvals_update_policy ON public.approvals' in content
+    assert 'DROP POLICY IF EXISTS audit_logs_insert_policy ON public.audit_logs' in content
 
 
 # ---------------------------------------------------------------------------
@@ -603,6 +621,34 @@ async def test_live_pg_approval_actor_guard_and_lifecycle_audit(pg_conn):
     async with pg_conn.transaction():
         await pg_conn.execute("SET LOCAL ROLE authenticated")
         await pg_conn.execute(f"SET LOCAL request.jwt.claim.sub = '{user_id}'")
+        visible = await pg_conn.fetchrow(
+            "SELECT id FROM public.approvals WHERE id = $1",
+            approval_id,
+        )
+        assert visible is not None
+        with pytest.raises(asyncpg.PostgresError):
+            await pg_conn.execute(
+                "INSERT INTO public.approvals "
+                "(id, fix_proposal_id, requested_by_id, verification_id, status, "
+                "proposal_fingerprint, verification_fingerprint, expires_at) "
+                "VALUES ($1, $2, $3, $4, 'pending', $5, $5, now() + interval '1 day')",
+                uuid.uuid4(),
+                proposal_id,
+                user_id,
+                verification_id,
+                fingerprint,
+            )
+        with pytest.raises(asyncpg.PostgresError):
+            await pg_conn.execute(
+                "UPDATE public.approvals SET status = 'approved', decision = 'approved', "
+                "approver_id = $2, rationale = 'Approved after verified review.', decided_at = now() "
+                "WHERE id = $1",
+                approval_id,
+                user_id,
+            )
+
+    async with pg_conn.transaction():
+        await pg_conn.execute(f"SET LOCAL request.jwt.claim.sub = '{user_id}'")
         with pytest.raises(asyncpg.PostgresError, match="Decision actor must match"):
             await pg_conn.execute(
                 "UPDATE public.approvals SET status = 'approved', decision = 'approved', "
@@ -611,9 +657,7 @@ async def test_live_pg_approval_actor_guard_and_lifecycle_audit(pg_conn):
                 approval_id,
                 uuid.uuid4(),
             )
-
     async with pg_conn.transaction():
-        await pg_conn.execute("SET LOCAL ROLE authenticated")
         await pg_conn.execute(f"SET LOCAL request.jwt.claim.sub = '{user_id}'")
         assert await pg_conn.execute(
             "UPDATE public.approvals SET status = 'approved', decision = 'approved', "
@@ -679,16 +723,17 @@ async def test_live_pg_audit_logs_append_only_immutability(pg_conn):
         assert row is not None
         assert row["action"] == "incident.created"
 
-        # User A can INSERT audit log for own project
+        # Direct client writes cannot forge audit events.
         new_log_id = uuid.uuid4()
-        await pg_conn.execute(
-            "INSERT INTO public.audit_logs (id, actor_id, project_id, action) VALUES ($1, $2, $3, 'investigation.started')",
-            new_log_id,
-            user_a_id,
-            proj_a_id,
-        )
-        row_new = await pg_conn.fetchrow("SELECT id FROM public.audit_logs WHERE id = $1", new_log_id)
-        assert row_new is not None
+        with pytest.raises(asyncpg.PostgresError):
+            await pg_conn.execute(
+                "INSERT INTO public.audit_logs "
+                "(id, actor_id, project_id, action) "
+                "VALUES ($1, $2, $3, 'investigation.started')",
+                new_log_id,
+                user_a_id,
+                proj_a_id,
+            )
 
         # User A CANNOT UPDATE audit logs (Immutability guarantee: 0 rows affected)
         res_upd = await pg_conn.execute("UPDATE public.audit_logs SET action = 'tampered' WHERE id = $1", log_id)
