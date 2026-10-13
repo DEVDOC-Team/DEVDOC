@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.github_client import GitHubAPIClient
+from app.core.rate_limit import enforce_tenant_rate_limit
 from app.dependencies import get_authenticated_db, get_db, require_active_user
 from app.models.user import User
 from app.schemas.github import (
@@ -19,7 +20,11 @@ from app.services.github import GitHubIntegrationService
 router = APIRouter(prefix="/github", tags=["github"])
 
 
-@router.get("/connect", response_model=GitHubConnectResponse)
+@router.get(
+    "/connect",
+    response_model=GitHubConnectResponse,
+    dependencies=[Depends(enforce_tenant_rate_limit)],
+)
 async def initiate_github_connect(
     current_user: User = Depends(require_active_user),
 ) -> GitHubConnectResponse:
@@ -69,7 +74,11 @@ async def github_oauth_callback(
     )
 
 
-@router.get("/connection", response_model=GitHubConnectionResponse)
+@router.get(
+    "/connection",
+    response_model=GitHubConnectionResponse,
+    dependencies=[Depends(enforce_tenant_rate_limit)],
+)
 async def get_github_connection(
     current_user: User = Depends(require_active_user),
     db: AsyncSession = Depends(get_authenticated_db),
@@ -78,7 +87,11 @@ async def get_github_connection(
     return await GitHubIntegrationService.get_connection_status(db, current_user.id)
 
 
-@router.delete("/connection", response_model=GitHubDisconnectResponse)
+@router.delete(
+    "/connection",
+    response_model=GitHubDisconnectResponse,
+    dependencies=[Depends(enforce_tenant_rate_limit)],
+)
 async def disconnect_github(
     current_user: User = Depends(require_active_user),
     db: AsyncSession = Depends(get_authenticated_db),
@@ -91,7 +104,11 @@ async def disconnect_github(
     )
 
 
-@router.get("/repositories", response_model=GitHubRepositoriesListResponse)
+@router.get(
+    "/repositories",
+    response_model=GitHubRepositoriesListResponse,
+    dependencies=[Depends(enforce_tenant_rate_limit)],
+)
 async def list_github_repositories(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(30, ge=1, le=100, description="Items per page"),

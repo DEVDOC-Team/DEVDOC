@@ -10,6 +10,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.exceptions import generic_exception_handler, http_exception_handler
 from app.core.logging import logger
+from app.core.rate_limit import rate_limit_middleware, rate_limiter
 
 
 async def security_headers_middleware(request: Request, call_next):
@@ -35,9 +36,13 @@ async def security_headers_middleware(request: Request, call_next):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    await rate_limiter.start()
     logger.info("Starting %s v%s in %s mode", settings.app_name, settings.app_version, settings.environment)
-    yield
-    logger.info("Shutting down %s", settings.app_name)
+    try:
+        yield
+    finally:
+        await rate_limiter.close()
+        logger.info("Shutting down %s", settings.app_name)
 
 
 app = FastAPI(
@@ -64,6 +69,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+app.middleware("http")(rate_limit_middleware)
 app.middleware("http")(security_headers_middleware)
 
 app.include_router(api_router)

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     # HTTP security
     # ------------------------------------------------------------------ #
-    trusted_hosts: list[str] = Field(default_factory=list)
+    trusted_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)
     security_headers_enabled: bool = Field(default=True)
     hsts_max_age_seconds: int = Field(default=31536000, ge=0, le=31536000)
 
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     # CORS
     # ------------------------------------------------------------------ #
-    cors_origins: list[str] = Field(default_factory=list)
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -71,10 +71,25 @@ class Settings(BaseSettings):
             return [str(origin).strip() for origin in value if str(origin).strip()]
         return value
 
+    # ------------------------------------------------------------------ #
+    # API rate limiting
+    # ------------------------------------------------------------------ #
+    rate_limit_enabled: bool = Field(default=True)
+    rate_limit_redis_url: SecretStr = Field(default=SecretStr(""))
+    rate_limit_tenant_capacity: int = Field(default=120, ge=1, le=100_000)
+    rate_limit_tenant_refill_per_second: float = Field(default=2.0, gt=0, le=10_000)
+    rate_limit_ip_capacity: int = Field(default=120, ge=1, le=100_000)
+    rate_limit_ip_refill_per_second: float = Field(default=10.0, gt=0, le=10_000)
+    rate_limit_memory_max_entries: int = Field(default=10_000, ge=100, le=100_000)
+
     @model_validator(mode="after")
-    def validate_runtime_security_defaults(self) -> "Settings":
+    def validate_runtime_security_defaults(self) -> Settings:
         if self.is_production and not self.trusted_hosts:
             raise ValueError("TRUSTED_HOSTS must be configured when ENVIRONMENT=production")
+        if self.is_production and not self.rate_limit_enabled:
+            raise ValueError("API rate limiting cannot be disabled in production")
+        if self.is_production and not self.rate_limit_redis_url.get_secret_value():
+            raise ValueError("RATE_LIMIT_REDIS_URL must be configured when ENVIRONMENT=production")
         if not self.is_production and not self.trusted_hosts:
             self.trusted_hosts = ["localhost", "127.0.0.1", "[::1]", "testserver"]
         return self
@@ -167,8 +182,12 @@ class Settings(BaseSettings):
     knowledge_search_depth: Literal["basic", "advanced", "fast", "ultra-fast"] = Field(
         default="basic"
     )
-    knowledge_search_preferred_domains: list[str] = Field(default_factory=list)
-    knowledge_search_allowed_domains: list[str] = Field(default_factory=list)
+    knowledge_search_preferred_domains: Annotated[list[str], NoDecode] = Field(
+        default_factory=list
+    )
+    knowledge_search_allowed_domains: Annotated[list[str], NoDecode] = Field(
+        default_factory=list
+    )
     knowledge_searches_per_investigation: int = Field(default=2, ge=1, le=10)
     knowledge_searches_per_request: int = Field(default=1, ge=1, le=3)
     knowledge_search_max_concurrent: int = Field(default=2, ge=1, le=10)

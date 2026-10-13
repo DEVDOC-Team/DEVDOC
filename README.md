@@ -2,7 +2,7 @@
 
 **DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate proposed fixes for later sandbox verification and human approval.
 
-> **Current Status**: Phases 1–16.1, opt-in Phase 17 sandbox verification, and Phase 18 human approval and audit are implemented. Targeted Phase 19 security hardening is documented below; it is not a full security certification. Sandbox verification and artifact persistence require explicit dependency injection. Production remediation is not implemented.
+> **Current Status**: Phases 1–16.1, opt-in Phase 17 sandbox verification, and Phase 18 human approval and audit are implemented. Phase 19 includes targeted database write-boundary hardening, not a full security certification. Phase 20 implements tenant quotas and burst protection; production requires a shared Redis service and deployment-specific trusted-host configuration. Sandbox verification and artifact persistence require explicit dependency injection. Production remediation is not implemented.
 
 ---
 
@@ -698,6 +698,16 @@ Phase 18 lets an authorized project owner or platform administrator review a fix
 
 Migration `0008_restrict_client_approval_audit_writes` closes authenticated-role direct writes that could forge audit events or record approval decisions without the service's verification eligibility checks. It preserves project-scoped reads and database-generated approval lifecycle events. See [SECURITY.md](./SECURITY.md) for the audit findings, threat model, deployment assumptions, tested scope, and remaining limitations. Apply migrations through the latest revision; PostgreSQL integration tests require an isolated test database.
 
+## Phase 20 — API Rate Limiting
+
+> **Status: Implemented — configure shared Redis before production deployment**
+
+* **Tenant quotas**: Authenticated API routes are limited by the verified JWT `sub` (the user account). This is the current tenant boundary because the schema has users and projects, but no organization/tenant entity. Default token bucket capacity is 120 requests, replenished at 2 requests per second.
+* **Burst protection**: All non-health/readiness HTTP routes also use a source-IP bucket with capacity 120 and refill of 10 requests per second. `/api/v1/health` and `/api/v1/ready` are exempt for load-balancer probes. GitHub's signed OAuth callback is covered by the IP bucket; other authenticated GitHub routes also receive the tenant quota.
+* **Distributed enforcement**: Redis Lua token buckets use Redis server time and atomic updates, so concurrent app workers share quotas. Rejections return HTTP 429 with `Retry-After`, `X-RateLimit-Limit`, and `X-RateLimit-Remaining` headers.
+* **Failure behavior**: Production settings require rate limiting to remain enabled and `RATE_LIMIT_REDIS_URL` to be configured. Redis connection/ping failures prevent startup; the limiter does not fail open. Local development can use the bounded in-memory backend, which is process-local and must not be used as a production substitute.
+* **Operations**: Set `RATE_LIMIT_REDIS_URL` to a private, authenticated Redis endpoint and tune the capacities/refill rates in the environment. If running behind a reverse proxy, configure the ASGI server's trusted proxy list so source-IP protection uses the actual client address; never trust arbitrary forwarded-for headers.
+
 # 16. Local Development
 
 ### Prerequisites
@@ -855,6 +865,13 @@ Configure `.env` locally using `backend/.env.example` as a template:
 | Variable | Description | Example / Default |
 |---|---|---|
 | `ENVIRONMENT` | Deployment environment | `development`, `staging`, `production` |
+| `RATE_LIMIT_ENABLED` | Enable tenant quotas and IP burst protection (mandatory in production) | `true` |
+| `RATE_LIMIT_REDIS_URL` | Shared Redis URL (required in production) | `redis://:password@redis.internal:6379/0` |
+| `RATE_LIMIT_TENANT_CAPACITY` | Initial account token-bucket capacity | `120` |
+| `RATE_LIMIT_TENANT_REFILL_PER_SECOND` | Account quota refill rate | `2` |
+| `RATE_LIMIT_IP_CAPACITY` | Initial source-IP burst capacity | `120` |
+| `RATE_LIMIT_IP_REFILL_PER_SECOND` | Source-IP refill rate | `10` |
+| `RATE_LIMIT_MEMORY_MAX_ENTRIES` | Maximum local in-memory buckets (development only) | `10000` |
 | `DATABASE_URL` | Async PostgreSQL connection string | `postgresql+asyncpg://postgres:postgres@localhost:5432/devdoc` |
 | `DIRECT_DATABASE_URL` | Direct connection for Alembic migrations | `postgresql+asyncpg://postgres:postgres@localhost:5432/devdoc` |
 | `SUPABASE_URL` | Supabase project URL | `https://your-project.supabase.co` |
