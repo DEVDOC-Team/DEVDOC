@@ -48,7 +48,16 @@ def _docker_available() -> bool:
             stderr=subprocess.DEVNULL,
             timeout=5,
         )
-        return res.returncode == 0
+        if res.returncode != 0:
+            return False
+        # Ensure test image is locally cached so tests do not fail on image download timeouts
+        img = subprocess.run(
+            ["docker", "image", "inspect", PINNED_PYTHON_IMAGE],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return img.returncode == 0
     except Exception:
         return False
 
