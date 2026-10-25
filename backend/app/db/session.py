@@ -38,17 +38,18 @@ _engine_kwargs: dict = {
 }
 
 if settings.database_configured:
-    _engine_kwargs.update(
-        {
-            "pool_size": settings.db_pool_size,
-            "max_overflow": settings.db_max_overflow,
-            "pool_timeout": settings.db_pool_timeout,
-            "pool_recycle": settings.db_pool_recycle,
-            "pool_pre_ping": True,
-        }
-    )
+    if "sqlite" not in settings.database_url:
+        _engine_kwargs.update(
+            {
+                "pool_size": settings.db_pool_size,
+                "max_overflow": settings.db_max_overflow,
+                "pool_timeout": settings.db_pool_timeout,
+                "pool_recycle": settings.db_pool_recycle,
+                "pool_pre_ping": True,
+            }
+        )
     engine = create_async_engine(settings.database_url, **_engine_kwargs)
-    logger.info("Database engine created (pool_size=%d)", settings.db_pool_size)
+    logger.info("Database engine created")
 else:
     # Fallback to in-memory SQLite so FastAPI starts without a real DB URL.
     # Tests and development without Supabase can still import models.
@@ -72,7 +73,11 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 if settings.database_replica_url:
-    replica_engine = create_async_engine(settings.database_replica_url, **_engine_kwargs)
+    _replica_kwargs = dict(_engine_kwargs)
+    if "sqlite" in settings.database_replica_url:
+        for k in ("pool_size", "max_overflow", "pool_timeout", "pool_recycle", "pool_pre_ping"):
+            _replica_kwargs.pop(k, None)
+    replica_engine = create_async_engine(settings.database_replica_url, **_replica_kwargs)
     AsyncReplicaSessionLocal = async_sessionmaker(
         bind=replica_engine,
         class_=AsyncSession,

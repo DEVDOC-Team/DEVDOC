@@ -50,7 +50,7 @@ jobs:
       - name: Run Pytest Test Suite
         env:
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-          RATE_LIMIT_ENABLED: "false"
+          RATE_LIMIT_ENABLED: "true"
           SUPABASE_JWT_SECRET: "test-jwt-secret-not-for-production-min-32-chars-long"
         run: |
           pytest -v --tb=short
