@@ -350,7 +350,7 @@ describe('Phase 3: Operational Dashboard, Incidents, Investigations & Approvals'
       const res = await listApprovals(projectId, investigationId);
       expect(res.items).toHaveLength(1);
       expect(res.items[0].id).toBe(approvalId);
-      expect(res.items[0].review?.proposal?.target_files[0]).toBe('PaymentClient.java');
+      expect(res.items[0].review?.proposal?.target_files?.[0]).toBe('PaymentClient.java');
       expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining(`/api/v1/projects/${projectId}/investigations/${investigationId}/approvals`),
         expect.objectContaining({ method: 'GET' })

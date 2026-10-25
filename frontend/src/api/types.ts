@@ -266,6 +266,183 @@ export interface InvestigationRunResponse extends Investigation {
 export type ApprovalDecision = 'approved' | 'rejected' | 'cancelled';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'expired';
 
+export type RCAStatus = 'root_cause_identified' | 'multiple_plausible_causes' | 'insufficient_evidence';
+export type RCAConfidence = 'low' | 'medium' | 'high';
+export type RCACategory =
+  | 'code_defect'
+  | 'configuration'
+  | 'dependency'
+  | 'infrastructure'
+  | 'resource_exhaustion'
+  | 'network'
+  | 'database'
+  | 'deployment'
+  | 'authentication'
+  | 'external_service'
+  | 'human_change'
+  | 'unknown';
+
+export type EvidenceClassification = 'fact' | 'external_knowledge';
+
+export interface RCAEvidenceReference {
+  evidence_id: string;
+  classification: EvidenceClassification;
+  source: string;
+  evidence_type: string;
+  timestamp: string;
+  source_url?: string | null;
+  title: string;
+  summary: string;
+}
+
+export interface RCAClaim {
+  statement: string;
+  evidence_references: RCAEvidenceReference[];
+}
+
+export interface CandidateRootCause {
+  candidate_id: string;
+  classification?: 'hypothesis';
+  statement: string;
+  category: RCACategory;
+  confidence: RCAConfidence;
+  rank: number;
+  supporting_evidence: RCAEvidenceReference[];
+  contradicting_evidence: RCAEvidenceReference[];
+  contributing_factors: RCAClaim[];
+  triggering_events: RCAClaim[];
+  observed_symptoms: RCAClaim[];
+  temporal_relationship_ids?: string[];
+  uncertainty: string;
+  rationale: string;
+  ranking_basis: string;
+}
+
+export interface CausalStep {
+  step: number;
+  description: string;
+  evidence_ids?: string[];
+}
+
+export interface RootCauseAnalysis {
+  analysis_id?: string;
+  investigation_id?: string;
+  execution_id?: string;
+  status?: RCAStatus;
+  confidence?: RCAConfidence;
+  candidates?: CandidateRootCause[];
+  selected_root_cause?: CandidateRootCause | null;
+  observed_facts?: RCAEvidenceReference[];
+  reasoning_summary_evidence?: RCAEvidenceReference[];
+  evidence_references?: RCAEvidenceReference[];
+  contradictions?: RCAEvidenceReference[];
+  uncertainties?: string[];
+  missing_information?: string[];
+  reasoning_summary?: string;
+  analyzed_at?: string;
+  // Fallback and display properties
+  claim?: string;
+  confidence_score?: number;
+  causal_chain?: CausalStep[];
+  failure_modes?: string[];
+}
+
+export type FixChangeType =
+  | 'code_change'
+  | 'configuration_change'
+  | 'dependency_change'
+  | 'infrastructure_change'
+  | 'deployment_change'
+  | 'database_change'
+  | 'monitoring_change'
+  | 'rollback'
+  | 'documentation_change'
+  | 'unknown';
+
+export type FixRiskCategory =
+  | 'data_loss'
+  | 'downtime'
+  | 'security'
+  | 'compatibility'
+  | 'performance'
+  | 'regression'
+  | 'migration'
+  | 'dependency'
+  | 'infrastructure'
+  | 'unknown';
+
+export type FixRiskSeverity = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+
+export interface FixChange {
+  target: string;
+  target_path?: string | null;
+  operation: string;
+  current_state?: string | null;
+  proposed_state?: string | null;
+  proposed_diff?: string | null;
+  patch_status?: string | null;
+  reason: string;
+  evidence_references?: string[];
+  tests_required?: string[];
+}
+
+export interface FixRisk {
+  category: FixRiskCategory;
+  severity: FixRiskSeverity;
+  description: string;
+  mitigation: string;
+}
+
+export interface FixVerificationStep {
+  description: string;
+  expected_result: string;
+  evidence_required?: string[];
+}
+
+export interface FixRollbackStep {
+  description: string;
+  trigger: string;
+  expected_result: string;
+}
+
+export interface FixProposal {
+  proposal_id?: string;
+  investigation_id?: string;
+  root_cause_reference?: string;
+  status?: string;
+  summary?: string;
+  rationale?: string;
+  affected_components?: string[];
+  change_type?: FixChangeType;
+  changes?: FixChange[];
+  prerequisites?: string[];
+  risks?: FixRisk[];
+  verification_plan?: FixVerificationStep[];
+  rollback_plan?: FixRollbackStep[];
+  evidence_references?: string[];
+  confidence?: number;
+  change_scope?: string;
+  human_approval_required?: boolean;
+  generated_at?: string;
+  // Legacy / fallback fields
+  title?: string;
+  explanation?: string;
+  diff?: string;
+  target_files?: string[];
+}
+
+export type VerificationStatus =
+  | 'passed'
+  | 'failed'
+  | 'inconclusive'
+  | 'timeout'
+  | 'cancelled'
+  | 'unsafe'
+  | 'setup_failed'
+  | 'not_run'
+  | 'running'
+  | 'unavailable';
+
 export interface VerificationStepReview {
   step_id: string;
   description: string;
@@ -280,7 +457,7 @@ export interface VerificationReview {
   verification_id: string;
   investigation_id: string;
   proposal_id: string;
-  status: string;
+  status: VerificationStatus;
   started_at: string;
   completed_at: string;
   verification_steps: VerificationStepReview[];
@@ -289,26 +466,6 @@ export interface VerificationReview {
   risk_findings: string[];
   cleanup_status: string;
   summary: string;
-}
-
-export interface CausalStep {
-  step: number;
-  description: string;
-  evidence_ids?: string[];
-}
-
-export interface RootCauseAnalysis {
-  claim: string;
-  confidence_score: number;
-  causal_chain: CausalStep[];
-  failure_modes: string[];
-}
-
-export interface FixProposal {
-  title: string;
-  explanation: string;
-  diff: string;
-  target_files: string[];
 }
 
 export interface ApprovalReview {

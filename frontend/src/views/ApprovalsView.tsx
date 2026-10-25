@@ -24,13 +24,13 @@ export const ApprovalsView: React.FC = () => {
           proposalId: activeApproval.fix_proposal_id ? `FP-${activeApproval.fix_proposal_id.slice(0, 4)}` : 'FP-01',
           title: activeApproval.review?.proposal?.title || 'Remediation Proposal',
           author: 'DEVDOC Orchestrator (NVIDIA Nemotron)',
-          targetFile: activeApproval.review?.proposal?.target_files?.[0] || 'services/payment/PaymentClient.java',
+          targetFile: activeApproval.review?.proposal?.changes?.[0]?.target_path || activeApproval.review?.proposal?.target_files?.[0] || 'services/payment/PaymentClient.java',
           fingerprint: activeApproval.proposal_fingerprint || (activeApproval.id ? `sha256:${activeApproval.id.slice(0, 16)}...` : 'sha256:7f81c9e2b04a91f3...'),
           sandboxResult: activeApproval.review?.verification?.status === 'passed' ? 'PASSED (Docker Alpine Isolated)' : 'VERIFIED (Docker Isolated)',
           regressionResult: `${activeApproval.review?.verification?.passed_steps ?? 482} passed / ${activeApproval.review?.verification?.failed_steps ?? 0} failed`,
           created: new Date(activeApproval.requested_at).toLocaleTimeString(),
           backendStatus: activeApproval.status,
-          summary: activeApproval.review?.proposal?.explanation || 'Candidate patch verified in Docker sandbox.',
+          summary: activeApproval.review?.proposal?.rationale || activeApproval.review?.proposal?.summary || activeApproval.review?.proposal?.explanation || 'Candidate patch verified in Docker sandbox.',
         },
       ]
     : [

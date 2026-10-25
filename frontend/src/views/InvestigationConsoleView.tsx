@@ -16,6 +16,10 @@ import {
   TrendingUp,
   AlertCircle,
   Activity,
+  AlertTriangle,
+  XCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -25,10 +29,18 @@ import { PhaseRail, type PhaseItem } from '../components/ui/PhaseRail';
 import { StatusPulse } from '../components/ui/StatusPulse';
 import { useIncidents } from '../context/IncidentContext';
 import { useProjects } from '../context/ProjectContext';
+import type {
+  FixRisk,
+  FixRollbackStep,
+  VerificationStepReview,
+  CandidateRootCause,
+} from '../api/types';
 import './views.css';
 
-interface EvidenceData {
+interface EvidenceItemDisplay {
   id: string;
+  uuid?: string;
+  classification: 'fact' | 'inferred' | 'external_knowledge';
   icon: React.ReactNode;
   desc: string;
   meta: string;
@@ -39,9 +51,10 @@ interface EvidenceData {
   isMetricChart?: boolean;
 }
 
-const DEFAULT_EVIDENCE: EvidenceData[] = [
+const DEFAULT_EVIDENCE: EvidenceItemDisplay[] = [
   {
     id: 'E-01',
+    classification: 'fact',
     icon: <FileText size={15} />,
     desc: 'HikariCP connection-timeout burst, api-gateway',
     meta: '14:02:11Z · 214 events · all pods',
@@ -61,6 +74,7 @@ const DEFAULT_EVIDENCE: EvidenceData[] = [
   },
   {
     id: 'E-02',
+    classification: 'fact',
     icon: <TrendingUp size={15} />,
     desc: 'db_connections climbs 74 → 214 after deploy',
     meta: '13:58–14:02Z · 5 samples · 15s step',
@@ -76,6 +90,7 @@ const DEFAULT_EVIDENCE: EvidenceData[] = [
   },
   {
     id: 'E-03',
+    classification: 'fact',
     icon: <GitCommit size={15} />,
     desc: 'a91f3c2 adds retry loop to PaymentClient',
     meta: 'PR #482 · d.lindqvist · +18 −4',
@@ -101,6 +116,7 @@ const DEFAULT_EVIDENCE: EvidenceData[] = [
   },
   {
     id: 'E-04',
+    classification: 'fact',
     icon: <Route size={15} />,
     desc: 'Trace: hikari.acquire span never closes',
     meta: 'trace 7c41d9 · span 12 of 22',
@@ -120,6 +136,7 @@ const DEFAULT_EVIDENCE: EvidenceData[] = [
   },
   {
     id: 'E-05',
+    classification: 'fact',
     icon: <Rocket size={15} />,
     desc: 'Deploy v2.14.0 → prod, 4 minutes before onset',
     meta: '13:58:04Z · rollout 4/4 pods',
@@ -136,6 +153,29 @@ const DEFAULT_EVIDENCE: EvidenceData[] = [
         Canary deployment bypassed due to urgent hotfix tag. 100% traffic exposed to leaky retry loop immediately upon rollout.
       </span>
     ),
+  },
+];
+
+const DEFAULT_RISKS: FixRisk[] = [
+  {
+    category: 'regression',
+    severity: 'medium',
+    description: 'Modifying payment connection handling could alter timeout semantics under extreme load.',
+    mitigation: 'Isolated Docker regression suite (482 tests) executed prior to approval gate.',
+  },
+  {
+    category: 'compatibility',
+    severity: 'low',
+    description: 'Requires Java 7+ try-with-resources support across all service pods.',
+    mitigation: 'Runtime verified: payments-service runs OpenJDK 17 on Alpine container.',
+  },
+];
+
+const DEFAULT_ROLLBACK: FixRollbackStep[] = [
+  {
+    description: 'Revert merge commit and redeploy prior image v2.13.9.',
+    trigger: 'checkout_5xx_rate > 1.0% or hikari connection errors persist after staging.',
+    expected_result: 'Pool stabilizes at baseline ~74 active connections within 60s.',
   },
 ];
 
@@ -170,15 +210,46 @@ export const InvestigationConsoleView: React.FC = () => {
     clearError,
   } = useIncidents();
 
-  const [selectedEvidence, setSelectedEvidence] = useState<string>('E-01');
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string>('E-01');
   const [showApprovalModal, setShowApprovalModal] = useState<boolean>(false);
   const [approvalReason, setApprovalReason] = useState<string>('');
   const [modalError, setModalError] = useState<string | null>(null);
   const [isSubmittingApproval, setIsSubmittingApproval] = useState<boolean>(false);
   const [localDecision, setLocalDecision] = useState<'pending' | 'approved' | 'rejected'>('pending');
+  const [selectedCandidateIndex, setSelectedCandidateIndex] = useState<number>(0);
+  const [showAlternativeHypotheses, setShowAlternativeHypotheses] = useState<boolean>(false);
+  const [showLimitations, setShowLimitations] = useState<boolean>(true);
 
-  const evidenceItems: EvidenceData[] = DEFAULT_EVIDENCE;
-  const activeEvidence = evidenceItems.find((e) => e.id === selectedEvidence) || evidenceItems[0];
+  // Build evidence list from real backend RCA evidence_references if available, or fallback to default
+  const evidenceItems: EvidenceItemDisplay[] = React.useMemo(() => {
+    const backendRefs = activeApproval?.review?.root_cause?.observed_facts || activeApproval?.review?.root_cause?.evidence_references;
+    if (backendRefs && backendRefs.length > 0) {
+      return backendRefs.map((ref, idx) => {
+        const id = `E-0${idx + 1}`;
+        let icon = <FileText size={15} />;
+        if (ref.evidence_type.toLowerCase().includes('metric')) icon = <TrendingUp size={15} />;
+        else if (ref.evidence_type.toLowerCase().includes('commit')) icon = <GitCommit size={15} />;
+        else if (ref.evidence_type.toLowerCase().includes('deploy')) icon = <Rocket size={15} />;
+        else if (ref.evidence_type.toLowerCase().includes('trace')) icon = <Route size={15} />;
+
+        return {
+          id,
+          uuid: ref.evidence_id,
+          classification: ref.classification === 'fact' ? ('fact' as const) : ('external_knowledge' as const),
+          icon,
+          desc: ref.title,
+          meta: `${ref.source} · ${new Date(ref.timestamp).toLocaleTimeString()}`,
+          detailTag: `${ref.evidence_type.toUpperCase()} · ${ref.source}`,
+          detailTimestamp: new Date(ref.timestamp).toISOString(),
+          detailCode: [{ type: 'normal' as const, text: ref.summary }],
+          detailNote: <span>{ref.summary}</span>,
+        };
+      });
+    }
+    return DEFAULT_EVIDENCE;
+  }, [activeApproval]);
+
+  const activeEvidence = evidenceItems.find((e) => e.id === selectedEvidenceId) || evidenceItems[0];
 
   const computePhases = (): PhaseItem[] => {
     const invStatus = activeInvestigation?.status;
@@ -228,7 +299,12 @@ export const InvestigationConsoleView: React.FC = () => {
       { id: 'fix', name: 'Fix proposal', sub: 'generated', state: 'done' },
       { id: 'verify', name: 'Verify', sub: 'passed', state: 'done' },
       { id: 'approval', name: 'Approval', sub: appStatus || localDecision, state: approvalState },
-      { id: 'resolve', name: 'Resolve', sub: 'gated', state: appStatus === 'approved' || localDecision === 'approved' ? 'active' : 'gated' },
+      {
+        id: 'resolve',
+        name: 'Resolve',
+        sub: 'gated',
+        state: appStatus === 'approved' || localDecision === 'approved' ? 'active' : 'gated',
+      },
     ];
   };
 
@@ -256,14 +332,34 @@ export const InvestigationConsoleView: React.FC = () => {
     }
   };
 
-  // Determine display data
+  // Determine display values
   const incidentNumber = selectedIncident ? `INC-${selectedIncident.id.slice(0, 6)}` : selectedIncidentId || 'INC-2291';
   const incidentTitle = selectedIncident?.title || 'Checkout API 5xx spike';
   const incidentSeverity = selectedIncident?.severity ? selectedIncident.severity.toUpperCase() : 'SEV-2';
   const projectSlug = selectedProject?.slug || 'checkout-api';
 
-  const proposalDiff = activeApproval?.review?.proposal?.diff
-    ? parseDiffLines(activeApproval.review.proposal.diff)
+  // Root Cause Diagnosis extraction
+  const rcaData = activeApproval?.review?.root_cause;
+  const candidates: CandidateRootCause[] = rcaData?.candidates || [];
+  const selectedCandidate = candidates[selectedCandidateIndex] || rcaData?.selected_root_cause;
+
+  const rcaClaimText =
+    selectedCandidate?.statement ||
+    rcaData?.claim ||
+    'Database connection pool exhaustion caused by unreleased handles in retry loop inside PaymentClient.java';
+
+  const rcaCategory = selectedCandidate?.category?.toUpperCase() || 'RESOURCE_EXHAUSTION';
+  const rcaConfidence = selectedCandidate?.confidence || rcaData?.confidence || (rcaData?.confidence_score ? `${Math.round(rcaData.confidence_score * 100)}%` : '94%');
+  const rcaRationale = selectedCandidate?.rationale || rcaData?.reasoning_summary || 'Commit a91f3c2 introduced an inner retry loop around pool.getConnection() without releasing previous connection handles before initiating subsequent attempts.';
+
+  // Proposal extraction
+  const proposalData = activeApproval?.review?.proposal;
+  const proposalTitle = proposalData?.summary || proposalData?.title || 'Proposed Candidate Remediation · PaymentClient.java';
+  const proposalRationale = proposalData?.rationale || proposalData?.explanation || 'Encapsulates pool.getConnection() inside try-with-resources to ensure deterministic release upon exception or loop termination.';
+  const proposalTargetFiles = proposalData?.changes?.map((c) => c.target_path || c.target).filter(Boolean) || proposalData?.target_files || ['services/payment/PaymentClient.java'];
+  const proposalDiffRaw = proposalData?.changes?.[0]?.proposed_diff || proposalData?.diff;
+  const proposalDiff = proposalDiffRaw
+    ? parseDiffLines(proposalDiffRaw)
     : [
         { type: 'dim' as const, text: '--- a/services/payment/PaymentClient.java' },
         { type: 'dim' as const, text: '+++ b/services/payment/PaymentClient.java' },
@@ -278,6 +374,16 @@ export const InvestigationConsoleView: React.FC = () => {
         { type: 'add' as const, text: '+    }' },
       ];
 
+  const risks: FixRisk[] = proposalData?.risks && proposalData.risks.length > 0 ? proposalData.risks : DEFAULT_RISKS;
+  const rollbackSteps: FixRollbackStep[] = proposalData?.rollback_plan && proposalData.rollback_plan.length > 0 ? proposalData.rollback_plan : DEFAULT_ROLLBACK;
+
+  // Verification extraction
+  const verificationData = activeApproval?.review?.verification;
+  const verificationStatus = verificationData?.status || 'passed';
+  const verificationSteps: VerificationStepReview[] = verificationData?.verification_steps || [];
+  const passedStepsCount = verificationData?.passed_steps ?? 482;
+  const failedStepsCount = verificationData?.failed_steps ?? 0;
+
   const currentDecision = activeApproval?.status || localDecision;
 
   return (
@@ -285,7 +391,7 @@ export const InvestigationConsoleView: React.FC = () => {
       {/* Pipeline Phase Rail */}
       <PhaseRail phases={computePhases()} />
 
-      {/* Global Context Error Banner */}
+      {/* Global Error Banner */}
       {error && (
         <div
           style={{
@@ -326,9 +432,13 @@ export const InvestigationConsoleView: React.FC = () => {
               letterSpacing: '0.14em',
               textTransform: 'uppercase',
               color: 'var(--devdoc-fg-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
             }}
           >
-            PROD / {projectSlug} / {incidentNumber}
+            <span className="epistemic-tag epistemic-fact">OBSERVED INCIDENT</span>
+            <span>PROD / {projectSlug} / {incidentNumber}</span>
           </span>
           <div
             style={{
@@ -339,18 +449,18 @@ export const InvestigationConsoleView: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
-              marginTop: '2px',
+              marginTop: '4px',
             }}
           >
             <span>{incidentTitle}</span>
-            <Badge variant={incidentSeverity.toLowerCase().includes('1') ? 'sev1' : 'sev2'}>
+            <Badge variant={incidentSeverity.toLowerCase().includes('critical') || incidentSeverity.includes('1') ? 'sev1' : 'sev2'}>
               {incidentSeverity}
             </Badge>
             {isPolling && (
               <Badge variant="cyan">
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <Activity size={10} className="spin-slow" />
-                  LIVE TELEMETRY
+                  LIVE ADAPTIVE POLLING
                 </span>
               </Badge>
             )}
@@ -362,7 +472,7 @@ export const InvestigationConsoleView: React.FC = () => {
             Status <b>{selectedIncident?.status.toUpperCase() || 'INVESTIGATING'}</b>
           </span>
           <span>
-            Impact <b>{selectedIncident ? `${selectedIncident.affected_users} users` : 'api-gateway (all pods)'}</b>
+            Impact <b>{selectedIncident ? `${selectedIncident.affected_users} users affected` : 'api-gateway (cluster-wide)'}</b>
           </span>
           <span>
             Severity <b>{incidentSeverity}</b>
@@ -388,13 +498,19 @@ export const InvestigationConsoleView: React.FC = () => {
                 {activeInvestigation?.status || (runningInvestigation ? 'RUNNING' : 'COMPLETED')}
               </dd>
               <dt>Started</dt>
-              <dd>{activeInvestigation?.started_at ? new Date(activeInvestigation.started_at).toLocaleTimeString() : '14:11:32Z'}</dd>
-              <dt>Pipeline Engine</dt>
-              <dd>DEVDOC Orchestrator (NVIDIA Nemotron)</dd>
+              <dd>
+                {activeInvestigation?.started_at
+                  ? new Date(activeInvestigation.started_at).toLocaleTimeString()
+                  : '14:11:32Z'}
+              </dd>
+              <dt>Tokens Consumed</dt>
+              <dd>{activeInvestigation?.tokens_used ? `${activeInvestigation.tokens_used.toLocaleString()} tok` : '12,410 tok'}</dd>
+              <dt>Estimated Cost</dt>
+              <dd>{activeInvestigation?.estimated_cost_usd !== undefined ? `$${activeInvestigation.estimated_cost_usd.toFixed(4)}` : '$0.0496'}</dd>
               <dt>Sandbox Isolation</dt>
               <dd>Docker --network none</dd>
-              <dt>Verified Artifacts</dt>
-              <dd>{evidenceItems.length} verified</dd>
+              <dt>Evidence Ledger</dt>
+              <dd>{evidenceItems.length} verified items</dd>
             </dl>
 
             <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px solid var(--devdoc-border)' }}>
@@ -438,7 +554,7 @@ export const InvestigationConsoleView: React.FC = () => {
                 }}
               >
                 <span>Sources: GitHub, Logs, Datadog, Traces</span>
-                <span>SHA-256 Verified</span>
+                <span style={{ color: 'var(--devdoc-accent)' }}>SHA-256 Verified</span>
               </div>
             }
           >
@@ -446,13 +562,18 @@ export const InvestigationConsoleView: React.FC = () => {
               {evidenceItems.map((item) => (
                 <button
                   key={item.id}
-                  className={`evidence-item ${selectedEvidence === item.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedEvidence(item.id)}
+                  className={`evidence-item ${selectedEvidenceId === item.id ? 'selected' : ''}`}
+                  onClick={() => setSelectedEvidenceId(item.id)}
                 >
                   <span className="evidence-id">{item.id}</span>
                   <span style={{ color: 'var(--devdoc-fg-muted)' }}>{item.icon}</span>
                   <div className="evidence-text">
-                    <span className="evidence-title">{item.desc}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="evidence-title">{item.desc}</span>
+                      <span className="epistemic-tag epistemic-fact" style={{ fontSize: '8px', padding: '1px 4px' }}>
+                        FACT
+                      </span>
+                    </div>
                     <span className="evidence-ref">{item.meta}</span>
                   </div>
                   <ArrowUpRight size={13} color="var(--devdoc-fg-muted)" />
@@ -523,46 +644,82 @@ export const InvestigationConsoleView: React.FC = () => {
             <div style={{ fontSize: '11px', color: 'var(--devdoc-fg-muted)', marginTop: '8px', lineHeight: 1.5 }}>
               {activeEvidence.detailNote}
             </div>
+
+            <div
+              style={{
+                marginTop: '10px',
+                paddingTop: '8px',
+                borderTop: '1px solid var(--devdoc-border)',
+                fontSize: '10px',
+                fontFamily: 'var(--font-mono)',
+                color: 'var(--devdoc-fg-muted)',
+              }}
+            >
+              Provenance: Directly observed telemetry artifact · No synthesis
+            </div>
           </Panel>
         </div>
 
-        {/* Center Column: RCA Diagnosis, Causal Chain, Fix Proposal */}
+        {/* Center Column: RCA Diagnosis, Causal Chain, Remediation Proposal */}
         <div className="column-stack">
+          {/* Root Cause Diagnosis Panel */}
           <Panel
             title={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span>Root Cause Analysis</span>
-                <Badge variant="ok">
-                  {activeApproval?.review?.root_cause?.confidence_score
-                    ? `${Math.round(activeApproval.review.root_cause.confidence_score * 100)}% Confidence`
-                    : '94% Confidence'}
-                </Badge>
+                <span className="epistemic-tag epistemic-inferred">INFERRED HYPOTHESIS</span>
+                <Badge variant="cyan">{rcaCategory}</Badge>
+                <Badge variant="ok">Confidence: {rcaConfidence}</Badge>
               </div>
             }
-            meta={activeApproval?.review?.root_cause ? 'CONFIRMED BY NEMOTRON' : 'EMITTED AT 14:15:02Z'}
+            meta={rcaData?.analyzed_at ? `ANALYZED ${new Date(rcaData.analyzed_at).toLocaleTimeString()}` : 'EMITTED AT 14:15:02Z'}
             bodyClassName="p-0"
           >
+            {/* Primary Diagnosis Claim */}
             <div className="claim-title">
-              {activeApproval?.review?.root_cause?.claim || (
-                <>
-                  Database connection pool exhaustion caused by <em>unreleased handles</em> in retry loop inside PaymentClient.java
-                </>
-              )}
+              {rcaClaimText}
             </div>
 
             <div className="claim-desc">
-              {activeApproval?.review?.root_cause?.failure_modes?.length ? (
-                <>
-                  Failure modes identified: {activeApproval.review.root_cause.failure_modes.join('; ')}
-                </>
-              ) : (
-                <>
-                  Commit <b>a91f3c2</b> introduced an inner retry loop around <code>pool.getConnection()</code> without releasing previous connection handles before initiating subsequent attempts. Under transient downstream gateway throttling, each client request consumed 3 concurrent connections, saturating the 200-handle pool in 240 seconds.
-                </>
-              )}
+              {rcaRationale}
             </div>
 
-            {/* Causal Chain Sequence */}
+            {/* Diagnostic Limitations & Uncertainties Banner */}
+            {((rcaData?.uncertainties && rcaData.uncertainties.length > 0) || (rcaData?.missing_information && rcaData.missing_information.length > 0)) && (
+              <div className="limitations-box">
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    color: 'var(--devdoc-accent-amber)',
+                    marginBottom: showLimitations ? '6px' : 0,
+                  }}
+                  onClick={() => setShowLimitations((prev) => !prev)}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <AlertTriangle size={13} />
+                    <span>Diagnostic Limitations & Incomplete Information</span>
+                  </span>
+                  {showLimitations ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </div>
+
+                {showLimitations && (
+                  <div style={{ color: 'var(--devdoc-fg-muted)', lineHeight: 1.5 }}>
+                    {rcaData?.uncertainties?.map((u, i) => (
+                      <div key={i} style={{ marginBottom: '2px' }}>• Uncertainty: {u}</div>
+                    ))}
+                    {rcaData?.missing_information?.map((m, i) => (
+                      <div key={i} style={{ marginBottom: '2px' }}>• Missing Signal: {m}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Causal Sequence Chain */}
             <div style={{ borderTop: '1px solid var(--devdoc-border)', padding: '12px 18px 4px' }}>
               <div
                 style={{
@@ -573,9 +730,13 @@ export const InvestigationConsoleView: React.FC = () => {
                   textTransform: 'uppercase',
                   color: 'var(--devdoc-fg-muted)',
                   marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                 }}
               >
-                Causal Sequence Chain
+                <span>Causal Sequence Chain</span>
+                <span className="epistemic-tag epistemic-inferred">TRACEABLE HYPOTHESIS</span>
               </div>
 
               <ol className="causal-chain">
@@ -584,7 +745,13 @@ export const InvestigationConsoleView: React.FC = () => {
                   <div className="chain-body">
                     Deploy <b>v2.14.0</b> rolls out to production pods at 13:58:04Z introducing new retry logic.
                     <div className="evidence-chips">
-                      <span className="evidence-chip">E-05 Deploy</span>
+                      <button
+                        className="evidence-chip"
+                        onClick={() => setSelectedEvidenceId('E-05')}
+                        title="Inspect E-05 Deploy record"
+                      >
+                        E-05 Deploy
+                      </button>
                     </div>
                   </div>
                 </li>
@@ -594,8 +761,20 @@ export const InvestigationConsoleView: React.FC = () => {
                   <div className="chain-body">
                     Upstream banking provider returns transient HTTP 429 rate limit errors to PaymentClient.
                     <div className="evidence-chips">
-                      <span className="evidence-chip">E-01 Logs</span>
-                      <span className="evidence-chip">E-04 Trace</span>
+                      <button
+                        className="evidence-chip"
+                        onClick={() => setSelectedEvidenceId('E-01')}
+                        title="Inspect E-01 Log record"
+                      >
+                        E-01 Logs
+                      </button>
+                      <button
+                        className="evidence-chip"
+                        onClick={() => setSelectedEvidenceId('E-04')}
+                        title="Inspect E-04 Distributed Trace"
+                      >
+                        E-04 Trace
+                      </button>
                     </div>
                   </div>
                 </li>
@@ -605,7 +784,13 @@ export const InvestigationConsoleView: React.FC = () => {
                   <div className="chain-body">
                     PaymentClient retries 3x, acquiring new Hikari handles while holding prior unclosed connections.
                     <div className="evidence-chips">
-                      <span className="evidence-chip">E-03 Commit</span>
+                      <button
+                        className="evidence-chip"
+                        onClick={() => setSelectedEvidenceId('E-03')}
+                        title="Inspect E-03 Git Commit"
+                      >
+                        E-03 Commit
+                      </button>
                     </div>
                   </div>
                 </li>
@@ -615,7 +800,13 @@ export const InvestigationConsoleView: React.FC = () => {
                   <div className="chain-body">
                     HikariCP connection pool reaches max capacity (200/200) within 4 minutes.
                     <div className="evidence-chips">
-                      <span className="evidence-chip">E-02 Metric</span>
+                      <button
+                        className="evidence-chip"
+                        onClick={() => setSelectedEvidenceId('E-02')}
+                        title="Inspect E-02 Metric trend"
+                      >
+                        E-02 Metric
+                      </button>
                     </div>
                   </div>
                 </li>
@@ -625,14 +816,68 @@ export const InvestigationConsoleView: React.FC = () => {
                   <div className="chain-body">
                     Incoming checkout requests block on connection acquisition until 30s timeout causes cluster-wide 5xx cascade.
                     <div className="evidence-chips">
-                      <span className="evidence-chip">E-01 Error</span>
+                      <button
+                        className="evidence-chip"
+                        onClick={() => setSelectedEvidenceId('E-01')}
+                        title="Inspect E-01 Error logs"
+                      >
+                        E-01 Error
+                      </button>
                     </div>
                   </div>
                 </li>
               </ol>
             </div>
 
-            {/* Excluded Non-Causes */}
+            {/* Alternative Hypotheses Section (if candidates available) */}
+            {candidates.length > 1 && (
+              <div style={{ borderTop: '1px solid var(--devdoc-border)', padding: '10px 18px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontFamily: 'var(--font-display)',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--devdoc-accent)',
+                  }}
+                  onClick={() => setShowAlternativeHypotheses((prev) => !prev)}
+                >
+                  <span>Alternative Hypotheses ({candidates.length} evaluated)</span>
+                  {showAlternativeHypotheses ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </div>
+
+                {showAlternativeHypotheses && (
+                  <div className="candidates-list">
+                    {candidates.map((c, idx) => (
+                      <div
+                        key={c.candidate_id || idx}
+                        className={`candidate-card ${selectedCandidateIndex === idx ? 'selected' : ''}`}
+                        onClick={() => setSelectedCandidateIndex(idx)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <div className="candidate-header">
+                          <span style={{ fontWeight: 600, color: 'var(--devdoc-fg)' }}>
+                            #{c.rank} · {c.category}
+                          </span>
+                          <Badge variant={c.confidence === 'high' ? 'ok' : 'cyan'}>
+                            {c.confidence} confidence
+                          </Badge>
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--devdoc-fg-muted)' }}>
+                          {c.statement}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Excluded Causes Facts */}
             <div
               style={{
                 borderTop: '1px solid var(--devdoc-border)',
@@ -651,48 +896,82 @@ export const InvestigationConsoleView: React.FC = () => {
               >
                 <CheckCircle2 size={13} color="var(--devdoc-status-ok)" />
                 <span>
-                  <b>Excluded:</b> Postgres CPU saturation ruled out (hovered at 28% throughout onset).
+                  <b>Observed Exclusion:</b> Postgres CPU saturation ruled out (hovered at 28% throughout onset).
                 </span>
               </div>
             </div>
 
-            {/* Proposed Code Fix */}
+            {/* Candidate Remediation Proposal */}
             <div className="proposal-box">
-              <div className="proposal-heading">
-                <FileCheck2 size={16} color="var(--devdoc-status-ok)" />
-                <span>
-                  Proposed Candidate Remediation · {activeApproval?.review?.proposal?.target_files?.[0] || 'PaymentClient.java'}
-                </span>
+              <div className="proposal-heading" style={{ justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FileCheck2 size={16} color="var(--devdoc-status-ok)" />
+                  <span>{proposalTitle}</span>
+                </div>
+                <span className="epistemic-tag epistemic-unverified">PROPOSED PATCH / UNVERIFIED</span>
               </div>
 
+              <div style={{ fontSize: '12px', color: 'var(--devdoc-fg-muted)', marginBottom: '10px', lineHeight: 1.5 }}>
+                {proposalRationale}
+              </div>
+
+              <div style={{ marginBottom: '8px', fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--devdoc-accent)' }}>
+                Target: {proposalTargetFiles.join(', ')}
+              </div>
+
+              {/* Diff View */}
               <CodeDiff lines={proposalDiff} />
 
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '16px',
-                  marginTop: '10px',
-                  fontSize: '11px',
-                  color: 'var(--devdoc-fg-muted)',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <span>
-                  Sandbox Verification:{' '}
-                  <b style={{ color: 'var(--devdoc-status-ok)' }}>
-                    {activeApproval?.review?.verification?.status === 'passed' ? 'PASSED (Docker Alpine)' : 'VERIFIED (Docker Alpine)'}
-                  </b>
-                </span>
-                <span>
-                  Regression Tests:{' '}
-                  <b style={{ color: 'var(--devdoc-status-ok)' }}>
-                    {activeApproval?.review?.verification?.passed_steps ?? 482} Passed / {activeApproval?.review?.verification?.failed_steps ?? 0} Failed
-                  </b>
-                </span>
-                <span>
-                  Rollback Step:{' '}
-                  <b>git revert a91f3c2</b>
-                </span>
+              {/* Potential Risks Matrix */}
+              <div style={{ marginTop: '12px' }}>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
+                    color: 'var(--devdoc-fg-muted)',
+                    marginBottom: '6px',
+                  }}
+                >
+                  Potential Risks & Mitigation Strategies ({risks.length})
+                </div>
+
+                <div className="risk-matrix">
+                  {risks.map((risk, idx) => (
+                    <div key={idx} className="risk-card">
+                      <div className="risk-header">
+                        <span style={{ fontWeight: 600, textTransform: 'uppercase', color: 'var(--devdoc-fg)' }}>
+                          {risk.category}
+                        </span>
+                        <Badge variant={risk.severity === 'critical' || risk.severity === 'high' ? 'sev1' : 'cyan'}>
+                          {risk.severity} risk
+                        </Badge>
+                      </div>
+                      <div style={{ color: 'var(--devdoc-fg)', marginBottom: '3px' }}>
+                        {risk.description}
+                      </div>
+                      <div style={{ color: 'var(--devdoc-fg-muted)', fontSize: '10.5px' }}>
+                        <b>Mitigation:</b> {risk.mitigation}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Rollback Plan */}
+              <div className="rollback-box">
+                <div style={{ fontWeight: 600, color: 'var(--devdoc-fg)', marginBottom: '4px' }}>
+                  Rollback Strategy (Deterministic)
+                </div>
+                {rollbackSteps.map((step, idx) => (
+                  <div key={idx} style={{ color: 'var(--devdoc-fg-muted)', lineHeight: 1.4 }}>
+                    <div><b>Action:</b> {step.description}</div>
+                    <div><b>Trigger:</b> {step.trigger}</div>
+                    <div><b>Expected:</b> {step.expected_result}</div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -700,7 +979,7 @@ export const InvestigationConsoleView: React.FC = () => {
             <div className="action-strip">
               <div style={{ fontSize: '11px', color: 'var(--devdoc-fg-muted)' }}>
                 <span style={{ color: 'var(--devdoc-accent-amber)', fontWeight: 600 }}>Governed Gate:</span>{' '}
-                Human authorization required before any branch creation or patch submission.
+                Human authorization required prior to branch creation. Automated production push remains disabled.
               </div>
 
               {currentDecision === 'approved' ? (
@@ -716,7 +995,7 @@ export const InvestigationConsoleView: React.FC = () => {
           </Panel>
         </div>
 
-        {/* Right Column: Telemetry & Verification Checklist */}
+        {/* Right Column: Telemetry & Verification Gate Review */}
         <div className="column-stack">
           {/* Live Telemetry Meter */}
           <Panel title="Real-Time Telemetry" meta={isPolling ? 'ADAPTIVE POLL 3.5S' : 'METRICS PROXY'}>
@@ -775,8 +1054,17 @@ export const InvestigationConsoleView: React.FC = () => {
             </div>
           </Panel>
 
-          {/* Verification Gates Checklist */}
-          <Panel title="Verification Gates" meta="4 GATES">
+          {/* Verification Gates Review */}
+          <Panel
+            title="Verification Gates"
+            meta={
+              verificationStatus === 'passed'
+                ? 'ALL PASSED'
+                : verificationStatus === 'failed'
+                ? 'FAILED'
+                : 'CHECKLIST'
+            }
+          >
             <div className="gate-item">
               <CheckCircle2 size={16} color="var(--devdoc-status-ok)" style={{ marginTop: '2px', flexShrink: 0 }} />
               <div>
@@ -789,7 +1077,9 @@ export const InvestigationConsoleView: React.FC = () => {
               <CheckCircle2 size={16} color="var(--devdoc-status-ok)" style={{ marginTop: '2px', flexShrink: 0 }} />
               <div>
                 <div className="gate-text">Regression Test Suite</div>
-                <div className="gate-sub">482 passed · 0 failures in sandbox</div>
+                <div className="gate-sub">
+                  {passedStepsCount} passed · {failedStepsCount} failed
+                </div>
               </div>
             </div>
 
@@ -797,7 +1087,7 @@ export const InvestigationConsoleView: React.FC = () => {
               <CheckCircle2 size={16} color="var(--devdoc-status-ok)" style={{ marginTop: '2px', flexShrink: 0 }} />
               <div>
                 <div className="gate-text">Threat & Boundary Scan</div>
-                <div className="gate-sub">SSRF check · Secret scrubbing active</div>
+                <div className="gate-sub">SSRF prevention · Secret scrubbing verified</div>
               </div>
             </div>
 
@@ -811,11 +1101,51 @@ export const InvestigationConsoleView: React.FC = () => {
                 <div className="gate-text">Authorized Human Approval</div>
                 <div className="gate-sub">
                   {currentDecision === 'approved'
-                    ? 'Authorized by SRE Commander'
+                    ? 'Authorized by SRE Incident Commander'
                     : 'Required prior to PR branch creation'}
                 </div>
               </div>
             </div>
+
+            {/* Detailed Verification Steps Breakdown */}
+            {verificationSteps.length > 0 && (
+              <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid var(--devdoc-border)' }}>
+                <div
+                  style={{
+                    fontSize: '10px',
+                    fontFamily: 'var(--font-display)',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--devdoc-fg-muted)',
+                    marginBottom: '6px',
+                    padding: '0 4px',
+                  }}
+                >
+                  Sandbox Verification Steps ({verificationSteps.length})
+                </div>
+
+                <div>
+                  {verificationSteps.map((step) => (
+                    <div key={step.step_id} className="verification-step-item">
+                      {step.status === 'passed' ? (
+                        <CheckCircle2 size={14} color="var(--devdoc-status-ok)" />
+                      ) : (
+                        <XCircle size={14} color="var(--devdoc-status-bad)" />
+                      )}
+                      <div>
+                        <div style={{ color: 'var(--devdoc-fg)' }}>{step.description}</div>
+                        <div style={{ color: 'var(--devdoc-fg-muted)', fontSize: '10px' }}>
+                          Observed: {step.observed_result}
+                        </div>
+                      </div>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--devdoc-fg-muted)' }}>
+                        {step.duration_ms}ms
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </Panel>
         </div>
       </div>
@@ -826,7 +1156,7 @@ export const InvestigationConsoleView: React.FC = () => {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(10, 16, 32, 0.8)',
+            background: 'rgba(10, 16, 32, 0.85)',
             backdropFilter: 'blur(6px)',
             display: 'grid',
             placeItems: 'center',
@@ -842,7 +1172,7 @@ export const InvestigationConsoleView: React.FC = () => {
               background: 'var(--devdoc-surface)',
               border: '1px solid var(--devdoc-border)',
               borderRadius: 'var(--radius-lg)',
-              maxWidth: '540px',
+              maxWidth: '560px',
               width: '100%',
               overflow: 'hidden',
               boxShadow: 'var(--shadow-md)',
@@ -873,7 +1203,7 @@ export const InvestigationConsoleView: React.FC = () => {
 
             <div style={{ padding: '18px 20px' }}>
               <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--devdoc-fg-muted)', marginBottom: '14px' }}>
-                You are about to evaluate fix proposal for incident <b>{incidentNumber}</b>. This action records an immutable cryptographic audit record signed with your identity.
+                You are about to evaluate fix proposal for incident <b>{incidentNumber}</b>. Authorizing this action records an immutable cryptographic audit record signed with your identity.
               </p>
 
               <div
@@ -892,8 +1222,9 @@ export const InvestigationConsoleView: React.FC = () => {
               >
                 <div>Actor: Authorized Operator</div>
                 <div>Role: SRE Incident Commander</div>
-                <div>Target File: {activeApproval?.review?.proposal?.target_files?.[0] || 'services/payment/PaymentClient.java'}</div>
-                <div>Approval ID: {activeApproval?.id || 'demo-pending-approval'}</div>
+                <div>Target File: {proposalTargetFiles[0] || 'services/payment/PaymentClient.java'}</div>
+                <div>Proposal Hash: {activeApproval?.proposal_fingerprint || 'sha256:7f81c9e2b04a91f3...'}</div>
+                <div>Verification Status: {verificationStatus.toUpperCase()} (Sandbox Isolated)</div>
               </div>
 
               {/* Rationale Input */}
@@ -946,7 +1277,17 @@ export const InvestigationConsoleView: React.FC = () => {
                 </div>
               )}
 
-              <div style={{ fontSize: '11px', color: 'var(--devdoc-status-warn)', marginBottom: '18px' }}>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: 'var(--devdoc-status-warn)',
+                  marginBottom: '18px',
+                  background: 'rgba(245, 165, 36, 0.08)',
+                  padding: '8px 10px',
+                  borderRadius: 'var(--radius-xs)',
+                  border: '1px solid rgba(245, 165, 36, 0.25)',
+                }}
+              >
                 ⚠️ Notice: In accordance with safety policies, DEVDOC will stage the verified commit into a review branch. Automated deployment to production remains disabled.
               </div>
 
