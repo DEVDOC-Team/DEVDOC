@@ -18,7 +18,8 @@ export type NavRoute =
   | "approvals"
   | "audit"
   | "projects"
-  | "settings";
+  | "settings"
+  | "signin";
 
 export interface SidebarProps {
   activeRoute: NavRoute;

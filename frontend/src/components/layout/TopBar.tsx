@@ -1,20 +1,26 @@
 import React, { useEffect, useState } from "react";
-import { Clock, Menu, User } from "lucide-react";
+import { Clock, Menu, User as UserIcon, LogOut, LogIn } from "lucide-react";
 import { Badge } from "../ui/Badge";
 import { StatusPulse } from "../ui/StatusPulse";
+import { useAuth } from "../../context/AuthContext";
+import { useProjects } from "../../context/ProjectContext";
 import "./layout.css";
 
 export interface TopBarProps {
   onToggleMobile: () => void;
+  onNavigateSignIn?: () => void;
   breadcrumb?: string;
   incidentTitle?: string;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
   onToggleMobile,
-  breadcrumb = "PROD / checkout-api / INC-2291",
+  onNavigateSignIn,
+  breadcrumb,
   incidentTitle = "Checkout API 5xx spike",
 }) => {
+  const { user, status, signOut } = useAuth();
+  const { selectedProject } = useProjects();
   const [utcTime, setUtcTime] = useState<string>("");
 
   useEffect(() => {
@@ -26,6 +32,16 @@ export const TopBar: React.FC<TopBarProps> = ({
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const displayBreadcrumb =
+    breadcrumb ||
+    (selectedProject
+      ? `PROD / ${selectedProject.slug} / ACTIVE`
+      : "DEVDOC / Workspace");
+
+  const displayName = user
+    ? user.full_name || user.email.split("@")[0]
+    : null;
 
   return (
     <header className="app-topbar" aria-label="Main header">
@@ -49,7 +65,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               color: "var(--devdoc-fg-muted)",
             }}
           >
-            {breadcrumb}
+            {displayBreadcrumb}
           </span>
           <div
             style={{
@@ -68,10 +84,57 @@ export const TopBar: React.FC<TopBarProps> = ({
       <div className="topbar-right">
         <Badge variant="env">PROD</Badge>
 
-        <span className="topbar-item">
-          <User size={14} color="var(--devdoc-fg-muted)" />
-          <span>m.okafor</span>
-        </span>
+        {status === "authenticated" && user ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span
+              className="topbar-item"
+              title={`Authenticated as ${user.email}`}
+              style={{ display: "flex", alignItems: "center", gap: "6px" }}
+            >
+              <UserIcon size={14} color="var(--devdoc-accent)" />
+              <span style={{ fontWeight: 600, color: "var(--devdoc-fg)" }}>
+                {displayName}
+              </span>
+            </span>
+
+            <button
+              onClick={signOut}
+              title="Sign Out"
+              aria-label="Sign Out"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                color: "var(--devdoc-fg-muted)",
+                padding: "4px",
+                borderRadius: "var(--radius-sm)",
+                transition: "color var(--transition-fast)",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--devdoc-status-bad)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--devdoc-fg-muted)")}
+            >
+              <LogOut size={14} />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={onNavigateSignIn}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              background: "rgba(56, 189, 248, 0.1)",
+              border: "1px solid rgba(56, 189, 248, 0.3)",
+              color: "var(--devdoc-accent)",
+              padding: "4px 10px",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "11px",
+              fontWeight: 600,
+            }}
+          >
+            <LogIn size={13} />
+            <span>Sign In</span>
+          </button>
+        )}
 
         <span className="topbar-item">
           <Clock size={14} color="var(--devdoc-fg-muted)" />
