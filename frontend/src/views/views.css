@@ -477,3 +477,18 @@
 .table-row-hover:hover {
   background: rgba(56, 189, 248, 0.04);
 }
+
+/* View Container & Responsive Grid */
+.view-container,
+.investigation-console,
+.incidents-view {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 1120px) {
+  .console-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+

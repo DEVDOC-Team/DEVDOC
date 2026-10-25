@@ -23,7 +23,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell app-container">
       {/* Background Dot Matrix Pattern */}
       <DotField />
 
@@ -36,7 +36,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       />
 
       {/* Primary Layout Column */}
-      <div className="app-main-wrap">
+      <div className="app-main-wrap app-main">
         <TopBar
           onToggleMobile={() => setMobileOpen((prev) => !prev)}
           onNavigateSignIn={() => onRouteChange('signin')}
@@ -44,7 +44,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           incidentTitle={incidentTitle}
         />
 
-        <main id="main-content" className="app-main-content" tabIndex={-1}>
+        <main id="main-content" className="app-main-content page-container" tabIndex={-1}>
           {children}
         </main>
 
