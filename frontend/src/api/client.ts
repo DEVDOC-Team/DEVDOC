@@ -96,7 +96,11 @@ export async function apiClient<T>(endpoint: string, options: RequestOptions = {
 
   // Link user-provided AbortSignal if present
   if (userSignal) {
-    userSignal.addEventListener('abort', () => controller.abort());
+    if (userSignal.aborted) {
+      controller.abort();
+    } else {
+      userSignal.addEventListener('abort', () => controller.abort());
+    }
   }
 
   const headers = new Headers(customHeaders);

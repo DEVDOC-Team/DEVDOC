@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ProjectProvider, useProjects } from './context/ProjectContext';
+import { IncidentProvider, useIncidents } from './context/IncidentContext';
 import { AppShell } from './components/layout/AppShell';
 import type { NavRoute } from './components/layout/Sidebar';
 import { OverviewView } from './views/OverviewView';
@@ -17,8 +18,8 @@ import { StatusPulse } from './components/ui/StatusPulse';
 const AppContent: React.FC = () => {
   const { isAuthResolving } = useAuth();
   const { selectedProject } = useProjects();
+  const { selectedIncidentId, selectedIncident, selectIncident } = useIncidents();
   const [activeRoute, setActiveRoute] = useState<NavRoute>('investigations');
-  const [selectedIncidentId, setSelectedIncidentId] = useState<string>('INC-2291');
 
   // Prevent UI flash while resolving initial stored session
   if (isAuthResolving) {
@@ -44,7 +45,7 @@ const AppContent: React.FC = () => {
   }
 
   const handleSelectIncident = (id: string) => {
-    setSelectedIncidentId(id);
+    selectIncident(id);
     setActiveRoute('investigations');
   };
 
@@ -57,7 +58,7 @@ const AppContent: React.FC = () => {
       case 'incidents':
         return `${projectPrefix} / Incidents Queue`;
       case 'investigations':
-        return `PROD / ${selectedProject?.slug || 'checkout-api'} / ${selectedIncidentId}`;
+        return `PROD / ${selectedProject?.slug || 'checkout-api'} / ${selectedIncident ? `INC-${selectedIncident.id.slice(0, 6)}` : selectedIncidentId || 'INC-2291'}`;
       case 'approvals':
         return `${projectPrefix} / Human Approval Gate`;
       case 'audit':
@@ -76,7 +77,7 @@ const AppContent: React.FC = () => {
   const getIncidentTitle = () => {
     switch (activeRoute) {
       case 'investigations':
-        return 'Checkout API 5xx spike';
+        return selectedIncident ? selectedIncident.title : 'Checkout API 5xx spike';
       case 'overview':
         return 'Operations Intelligence Deck';
       case 'incidents':
@@ -140,7 +141,9 @@ export const App: React.FC = () => {
   return (
     <AuthProvider>
       <ProjectProvider>
-        <AppContent />
+        <IncidentProvider>
+          <AppContent />
+        </IncidentProvider>
       </ProjectProvider>
     </AuthProvider>
   );
