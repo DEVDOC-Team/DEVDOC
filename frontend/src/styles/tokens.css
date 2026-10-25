@@ -1,0 +1,81 @@
+/**
+ * DEVDOC Design System Tokens
+ * Directly derived from and faithful to the Gesso reference design.
+ * https://app.gesso.build/s/eager-anchor-lq2q
+ */
+
+:root {
+  /* Color Palette — Core Surfaces */
+  --devdoc-canvas: #0a1020;
+  --devdoc-surface: #121b2e;
+  --devdoc-surface-hover: #162238;
+  --devdoc-surface-raised: #18253d;
+  --devdoc-surface-sunken: #0d1526;
+
+  /* Borders & Dividers */
+  --devdoc-border: #243049;
+  --devdoc-border-subtle: #1a253a;
+  --devdoc-border-accent: rgba(56, 189, 248, 0.35);
+
+  /* Typography Colors */
+  --devdoc-fg: #e6ecf5;
+  --devdoc-fg-muted: #93a1b8;
+  --devdoc-fg-subtle: #64748b;
+
+  /* Brand Accents */
+  --devdoc-accent: #38bdf8;
+  --devdoc-on-accent: #04111c;
+  --devdoc-accent-glow: rgba(56, 189, 248, 0.14);
+  --devdoc-accent-amber: #f5a524;
+
+  /* Status Colors */
+  --devdoc-status-ok: #34d399;
+  --devdoc-status-ok-bg: rgba(52, 211, 153, 0.1);
+  --devdoc-status-ok-border: rgba(52, 211, 153, 0.35);
+
+  --devdoc-status-warn: #f5a524;
+  --devdoc-status-warn-bg: rgba(245, 165, 36, 0.1);
+  --devdoc-status-warn-border: rgba(245, 165, 36, 0.35);
+
+  --devdoc-status-bad: #f87171;
+  --devdoc-status-bad-bg: rgba(248, 113, 113, 0.12);
+  --devdoc-status-bad-border: rgba(248, 113, 113, 0.4);
+
+  /* Typography Stacks */
+  --font-display: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --font-body: "Geist", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* Spacing Scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Border Radii */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.2, 0, 0, 1);
+  --transition-base: 250ms cubic-bezier(0.2, 0, 0, 1);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 15px rgba(56, 189, 248, 0.25);
+
+  /* Dimensions */
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 64px;
+  --topbar-height: 56px;
+  --content-max-width: 1320px;
+}
