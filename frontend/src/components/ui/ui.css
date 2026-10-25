@@ -127,6 +127,8 @@
   color: var(--devdoc-accent);
   border: 1px solid rgba(56, 189, 248, 0.45);
   background: rgba(56, 189, 248, 0.08);
+}
+
 .badge-warn {
   color: var(--devdoc-status-warn);
   border: 1px solid var(--devdoc-status-warn-border);

@@ -459,3 +459,21 @@
   margin-top: 10px;
   font-size: 11px;
 }
+
+/* Phase 5: Governance & Audit Styles */
+.spin-slow {
+  animation: devdoc-spin 2s linear infinite;
+}
+
+@keyframes devdoc-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.table-row-hover:hover {
+  background: rgba(56, 189, 248, 0.04);
+}

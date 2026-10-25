@@ -504,6 +504,9 @@ export interface ApprovalAuditEvent {
   id: string;
   actor_id: string | null;
   action: string;
+  description?: string | null;
+  outcome?: string | null;
+  request_id?: string | null;
   details: Record<string, any>;
   created_at: string;
 }

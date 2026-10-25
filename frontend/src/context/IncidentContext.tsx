@@ -6,7 +6,7 @@ import {
   createInvestigation as apiCreateInvestigation,
   runInvestigation as apiRunInvestigation,
 } from '../api/investigations';
-import { listApprovals, approveRequest, rejectRequest } from '../api/approvals';
+import { listApprovals, approveRequest, rejectRequest, cancelRequest } from '../api/approvals';
 import type {
   Incident,
   IncidentCreate,
@@ -21,6 +21,7 @@ export interface IncidentContextValue {
   selectedIncidentId: string | null;
   investigations: Investigation[];
   activeInvestigation: Investigation | null;
+  approvals: ApprovalResponse[];
   activeApproval: ApprovalResponse | null;
   loadingIncidents: boolean;
   loadingInvestigations: boolean;
@@ -28,10 +29,12 @@ export interface IncidentContextValue {
   isPolling: boolean;
   error: string | null;
   refreshIncidents: () => Promise<void>;
+  refreshInvestigations: () => Promise<void>;
   selectIncident: (id: string) => void;
   createIncident: (data: IncidentCreate) => Promise<Incident>;
   triggerInvestigationRun: () => Promise<void>;
   submitApprovalDecision: (approvalId: string, decision: 'approved' | 'rejected', reason: string) => Promise<void>;
+  cancelApprovalDecision: (approvalId: string, reason: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -42,6 +45,7 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [investigations, setInvestigations] = useState<Investigation[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalResponse[]>([]);
   const [activeApproval, setActiveApproval] = useState<ApprovalResponse | null>(null);
   const [loadingIncidents, setLoadingIncidents] = useState<boolean>(false);
   const [loadingInvestigations, setLoadingInvestigations] = useState<boolean>(false);
@@ -116,6 +120,7 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const refreshInvestigations = useCallback(async () => {
     if (!selectedProjectId || !selectedIncidentId) {
       setInvestigations([]);
+      setApprovals([]);
       setActiveApproval(null);
       return;
     }
@@ -130,17 +135,22 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const latest = items[0];
       if (latest) {
         try {
-          const appRes = await listApprovals(selectedProjectId, latest.id, { limit: 5 });
-          setActiveApproval(appRes.items && appRes.items[0] ? appRes.items[0] : null);
+          const appRes = await listApprovals(selectedProjectId, latest.id, { limit: 20 });
+          const appItems = appRes.items || [];
+          setApprovals(appItems);
+          setActiveApproval(appItems[0] || null);
         } catch {
+          setApprovals([]);
           setActiveApproval(null);
         }
       } else {
+        setApprovals([]);
         setActiveApproval(null);
       }
     } catch {
       // Non-fatal if incident has no investigations yet
       setInvestigations([]);
+      setApprovals([]);
       setActiveApproval(null);
     } finally {
       setLoadingInvestigations(false);
@@ -231,16 +241,35 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (!selectedProjectId || !activeInvestigation) return;
       setError(null);
       try {
+        let res: ApprovalResponse;
         if (decision === 'approved') {
-          const res = await approveRequest(selectedProjectId, activeInvestigation.id, approvalId, reason);
-          setActiveApproval(res);
+          res = await approveRequest(selectedProjectId, activeInvestigation.id, approvalId, reason);
         } else {
-          const res = await rejectRequest(selectedProjectId, activeInvestigation.id, approvalId, reason);
-          setActiveApproval(res);
+          res = await rejectRequest(selectedProjectId, activeInvestigation.id, approvalId, reason);
         }
+        setActiveApproval(res);
+        setApprovals((prev) => prev.map((a) => (a.id === approvalId ? res : a)));
         await refreshInvestigations();
       } catch (err: any) {
         const msg = err instanceof ApiError ? err.message : err.message || 'Failed to submit approval decision';
+        setError(msg);
+        throw err;
+      }
+    },
+    [selectedProjectId, activeInvestigation, refreshInvestigations]
+  );
+
+  const cancelApprovalDecision = useCallback(
+    async (approvalId: string, reason: string) => {
+      if (!selectedProjectId || !activeInvestigation) return;
+      setError(null);
+      try {
+        const res = await cancelRequest(selectedProjectId, activeInvestigation.id, approvalId, reason);
+        setActiveApproval(res);
+        setApprovals((prev) => prev.map((a) => (a.id === approvalId ? res : a)));
+        await refreshInvestigations();
+      } catch (err: any) {
+        const msg = err instanceof ApiError ? err.message : err.message || 'Failed to cancel approval request';
         setError(msg);
         throw err;
       }
@@ -258,6 +287,7 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         selectedIncidentId,
         investigations,
         activeInvestigation,
+        approvals,
         activeApproval,
         loadingIncidents,
         loadingInvestigations,
@@ -265,10 +295,12 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         isPolling,
         error,
         refreshIncidents,
+        refreshInvestigations,
         selectIncident,
         createIncident,
         triggerInvestigationRun,
         submitApprovalDecision,
+        cancelApprovalDecision,
         clearError,
       }}
     >
