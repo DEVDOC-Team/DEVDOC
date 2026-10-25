@@ -179,11 +179,22 @@ export const AuditView: React.FC = () => {
     );
   });
 
+  const isViewingDemo = mappedRealRecords.length === 0 && showDemoIfEmpty;
+
   const handleExportJson = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(recordsToDisplay, null, 2));
+    const exportPayload = {
+      is_demo_data: isViewingDemo,
+      warning: isViewingDemo ? 'DEMO DATA — NOT A LIVE AUDIT TRAIL' : undefined,
+      exported_at: new Date().toISOString(),
+      project_id: selectedProject?.id,
+      investigation_id: activeInvestigation?.id,
+      total_records: recordsToDisplay.length,
+      records: recordsToDisplay,
+    };
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportPayload, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', 'devdoc-audit-ledger.json');
+    downloadAnchor.setAttribute('download', isViewingDemo ? 'devdoc-demo-audit-ledger.json' : 'devdoc-audit-ledger.json');
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -191,6 +202,39 @@ export const AuditView: React.FC = () => {
 
   return (
     <div className="view-container">
+      {/* Mandatory Demo Data Boundary Banner */}
+      {isViewingDemo && (
+        <div
+          role="alert"
+          style={{
+            margin: '0 0 16px 0',
+            padding: '12px 16px',
+            background: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.5)',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <AlertCircle size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b', letterSpacing: '0.04em' }}>
+                DEMO DATA — NOT A LIVE AUDIT TRAIL
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--devdoc-fg-muted)', marginTop: '2px' }}>
+                The audit ledger currently displays sample demonstration records. No live audit events have been recorded for this investigation yet.
+              </div>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => setShowDemoIfEmpty(false)} style={{ flexShrink: 0 }}>
+            Hide Sample Records
+          </Button>
+        </div>
+      )}
+
       {/* Incident Header Banner */}
       <div className="incident-header-banner">
         <div>

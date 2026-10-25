@@ -162,6 +162,10 @@ export async function apiClient<T>(endpoint: string, options: RequestOptions = {
         errorMessage = bodyData.slice(0, 200);
       }
 
+      if (response.status === 401) {
+        clearStoredToken();
+      }
+
       throw new ApiError(response.status, errorMessage, bodyData);
     }
 

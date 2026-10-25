@@ -19,6 +19,7 @@ export interface IncidentContextValue {
   incidents: Incident[];
   selectedIncident: Incident | null;
   selectedIncidentId: string | null;
+  isDemoMode: boolean;
   investigations: Investigation[];
   activeInvestigation: Investigation | null;
   approvals: ApprovalResponse[];
@@ -31,6 +32,8 @@ export interface IncidentContextValue {
   refreshIncidents: () => Promise<void>;
   refreshInvestigations: () => Promise<void>;
   selectIncident: (id: string) => void;
+  selectDemoIncident: () => void;
+  exitDemoMode: () => void;
   createIncident: (data: IncidentCreate) => Promise<Incident>;
   triggerInvestigationRun: () => Promise<void>;
   submitApprovalDecision: (approvalId: string, decision: 'approved' | 'rejected', reason: string) => Promise<void>;
@@ -61,6 +64,14 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const selectIncident = useCallback((id: string) => {
     setSelectedIncidentId(id);
   }, []);
+
+  const selectDemoIncident = useCallback(() => {
+    setSelectedIncidentId('INC-2291');
+  }, []);
+
+  const exitDemoMode = useCallback(() => {
+    setSelectedIncidentId(incidents[0] ? incidents[0].id : null);
+  }, [incidents]);
 
   // Fetch incidents for current selected project with cancellation
   const refreshIncidents = useCallback(async () => {
@@ -277,7 +288,29 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [selectedProjectId, activeInvestigation, refreshInvestigations]
   );
 
-  const selectedIncident = incidents.find((i) => i.id === selectedIncidentId) || null;
+  const isDemoMode = selectedIncidentId === 'INC-2291';
+
+  const DEMO_INCIDENT: Incident = {
+    id: 'INC-2291',
+    project_id: selectedProjectId || 'proj-demo',
+    repository_id: null,
+    reported_by_id: null,
+    title: 'Checkout API 5xx spike (Connection Pool Exhaustion)',
+    severity: 'high',
+    status: 'investigating',
+    source: 'datadog',
+    description: 'Elevated HTTP 504 errors in checkout gateway service due to HikariCP connection starvation in retry loop.',
+    affected_users: 1420,
+    external_reference: 'DD-ALERT-8819',
+    detected_at: '2026-10-25T14:02:11Z',
+    resolved_at: null,
+    created_at: '2026-10-25T14:07:02Z',
+    updated_at: '2026-10-25T14:12:00Z',
+  };
+
+  const selectedIncident = isDemoMode
+    ? DEMO_INCIDENT
+    : incidents.find((i) => i.id === selectedIncidentId) || null;
 
   return (
     <IncidentContext.Provider
@@ -285,6 +318,7 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         incidents,
         selectedIncident,
         selectedIncidentId,
+        isDemoMode,
         investigations,
         activeInvestigation,
         approvals,
@@ -297,6 +331,8 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         refreshIncidents,
         refreshInvestigations,
         selectIncident,
+        selectDemoIncident,
+        exitDemoMode,
         createIncident,
         triggerInvestigationRun,
         submitApprovalDecision,

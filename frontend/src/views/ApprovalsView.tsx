@@ -133,9 +133,6 @@ export const ApprovalsView: React.FC = () => {
     if (targetFiles.length === 0 && prop?.target_files) {
       targetFiles.push(...prop.target_files);
     }
-    if (targetFiles.length === 0) {
-      targetFiles.push('services/payment/PaymentClient.java');
-    }
 
     const risks = (prop?.risks || []).map((r) => ({
       category: r.category,
@@ -151,25 +148,25 @@ export const ApprovalsView: React.FC = () => {
 
     return {
       id: appr.id,
-      incidentId: selectedIncident ? `INC-${selectedIncident.id.slice(0, 8)}` : 'INC-2291',
-      investigationId: activeInvestigation ? `INV-${activeInvestigation.id.slice(0, 8)}` : 'INV-4819',
-      proposalId: appr.fix_proposal_id ? `FP-${appr.fix_proposal_id.slice(0, 8)}` : 'FP-01',
+      incidentId: selectedIncident ? `INC-${selectedIncident.id.slice(0, 8)}` : 'INC-LIVE',
+      investigationId: activeInvestigation ? `INV-${activeInvestigation.id.slice(0, 8)}` : 'INV-LIVE',
+      proposalId: appr.fix_proposal_id ? `FP-${appr.fix_proposal_id.slice(0, 8)}` : 'FP-LIVE',
       title: prop?.title || prop?.summary || 'Autonomous Remediation Patch',
-      author: 'DEVDOC Orchestrator (NVIDIA Nemotron)',
+      author: 'DEVDOC Orchestrator',
       targetFiles,
       proposalFingerprint: appr.proposal_fingerprint || `sha256:${appr.id.replace(/-/g, '')}`,
       verificationFingerprint: appr.verification_fingerprint || (appr.verification_id ? `sha256:${appr.verification_id.replace(/-/g, '')}` : 'sha256:verified'),
-      sandboxStatus: ver?.status || 'passed',
-      sandboxSteps: ver ? `${ver.passed_steps} passed / ${ver.failed_steps} failed` : '482 passed / 0 failed',
-      cleanupStatus: ver?.cleanup_status || 'complete',
+      sandboxStatus: ver?.status || 'pending',
+      sandboxSteps: ver ? `${ver.passed_steps} passed / ${ver.failed_steps} failed` : 'Pending verification',
+      cleanupStatus: ver?.cleanup_status || 'standby',
       created: new Date(appr.requested_at).toLocaleString(),
       backendStatus: appr.status,
       summary: prop?.rationale || prop?.summary || prop?.explanation || 'Candidate patch verified in Docker sandbox environment.',
       rationale: appr.rationale,
       decidedAt: appr.decided_at ? new Date(appr.decided_at).toLocaleString() : null,
       approverId: appr.approver_id,
-      risks: risks.length > 0 ? risks : DEMO_QUEUE_ITEM.risks,
-      rollback: rollback.length > 0 ? rollback : DEMO_QUEUE_ITEM.rollback,
+      risks: risks,
+      rollback: rollback,
       isDemo: false,
     };
   };
@@ -233,6 +230,39 @@ export const ApprovalsView: React.FC = () => {
 
   return (
     <div className="view-container">
+      {/* Mandatory Demo Data Boundary Banner */}
+      {filteredItems.some((i) => i.isDemo) && (
+        <div
+          role="alert"
+          style={{
+            margin: '0 0 16px 0',
+            padding: '12px 16px',
+            background: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.5)',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <AlertCircle size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b', letterSpacing: '0.04em' }}>
+                DEMO DATA — NOT A LIVE INCIDENT
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--devdoc-fg-muted)', marginTop: '2px' }}>
+                The approval queue currently displays a simulated reference item (PaymentClient connection leak remediation). Decisions on demo items are simulated locally and will NOT execute production changes or invoke backend endpoints.
+              </div>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => setShowDemoIfEmpty(false)} style={{ flexShrink: 0 }}>
+            Hide Demo Item
+          </Button>
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="incident-header-banner">
         <div>

@@ -18,7 +18,7 @@ import { StatusPulse } from './components/ui/StatusPulse';
 const AppContent: React.FC = () => {
   const { isAuthResolving } = useAuth();
   const { selectedProject } = useProjects();
-  const { selectedIncidentId, selectedIncident, selectIncident } = useIncidents();
+  const { selectedIncident, selectIncident, isDemoMode } = useIncidents();
   const [activeRoute, setActiveRoute] = useState<NavRoute>('investigations');
 
   // Prevent UI flash while resolving initial stored session
@@ -58,11 +58,16 @@ const AppContent: React.FC = () => {
       case 'incidents':
         return `${projectPrefix} / Incidents Queue`;
       case 'investigations':
-        return `PROD / ${selectedProject?.slug || 'checkout-api'} / ${selectedIncident ? `INC-${selectedIncident.id.slice(0, 6)}` : selectedIncidentId || 'INC-2291'}`;
+        if (isDemoMode) {
+          return `PROD / checkout-api / INC-2291 [DEMO DATA]`;
+        }
+        return `PROD / ${selectedProject?.slug || 'workspace'} / ${
+          selectedIncident ? `INC-${selectedIncident.id.slice(0, 8)}` : 'No Incident Selected'
+        }`;
       case 'approvals':
-        return `${projectPrefix} / Human Approval Gate`;
+        return `${projectPrefix} / Human Approval Gate${isDemoMode ? ' [DEMO DATA]' : ''}`;
       case 'audit':
-        return 'SECURITY / Cryptographic Audit';
+        return `SECURITY / Audit Ledger${isDemoMode ? ' [DEMO DATA]' : ''}`;
       case 'projects':
         return 'PLATFORM / Monitored Projects';
       case 'settings':
@@ -77,7 +82,10 @@ const AppContent: React.FC = () => {
   const getIncidentTitle = () => {
     switch (activeRoute) {
       case 'investigations':
-        return selectedIncident ? selectedIncident.title : 'Checkout API 5xx spike';
+        if (isDemoMode) {
+          return '[DEMO DATA — NOT A LIVE INCIDENT] Checkout API 5xx spike';
+        }
+        return selectedIncident ? selectedIncident.title : 'Investigation Console — No Incident Selected';
       case 'overview':
         return 'Operations Intelligence Deck';
       case 'incidents':
@@ -85,7 +93,7 @@ const AppContent: React.FC = () => {
       case 'approvals':
         return 'Candidate Patch Verification Gate';
       case 'audit':
-        return 'SHA-256 Merkle Chain Audit';
+        return 'Audit Ledger & Governance Trail';
       case 'projects':
         return selectedProject ? `Active Project: ${selectedProject.name}` : 'Monitored Workspaces & Repositories';
       case 'settings':
@@ -109,7 +117,7 @@ const AppContent: React.FC = () => {
       case 'incidents':
         return <IncidentsView onSelectIncident={handleSelectIncident} />;
       case 'investigations':
-        return <InvestigationConsoleView />;
+        return <InvestigationConsoleView onNavigate={(route) => setActiveRoute(route as NavRoute)} />;
       case 'approvals':
         return <ApprovalsView />;
       case 'audit':
