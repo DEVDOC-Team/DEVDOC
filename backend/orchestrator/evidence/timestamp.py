@@ -73,10 +73,7 @@ def normalize_timestamp(
             # Normalize trailing Z to +00:00 for robust compatibility
             normalized_s = re.sub(r"Z$", "+00:00", s, flags=re.IGNORECASE)
             dt = datetime.fromisoformat(normalized_s)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=UTC)
-            else:
-                dt = dt.astimezone(UTC)
+            dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
             return dt, TimestampType.EVENT, []
         except (ValueError, TypeError):
             pass
@@ -85,10 +82,7 @@ def normalize_timestamp(
         for fmt in _ISO_FORMATS:
             try:
                 dt = datetime.strptime(s, fmt)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=UTC)
-                else:
-                    dt = dt.astimezone(UTC)
+                dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
                 return dt, TimestampType.EVENT, []
             except (ValueError, TypeError):
                 continue

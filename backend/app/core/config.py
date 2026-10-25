@@ -148,12 +148,12 @@ class Settings(BaseSettings):
     llm_enabled: bool = Field(default=False)
     nebius_api_key: SecretStr = Field(default=SecretStr(""))
     nebius_base_url: str = Field(default="https://api.studio.nebius.ai/v1")
-    nebius_model: str = Field(default="nvidia/Llama-3.1-Nemotron-70B-Instruct")
+    nebius_model: str = Field(default="nvidia/Nemotron-3_5-Lightning")
     llm_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     llm_max_attempts: int = Field(default=2, ge=1, le=3)
     llm_retry_backoff_seconds: float = Field(default=0.5, ge=0, le=5)
     llm_max_input_tokens: int = Field(default=12_000, ge=1, le=32_000)
-    llm_max_output_tokens: int = Field(default=1_000, ge=1, le=4_000)
+    llm_max_output_tokens: int = Field(default=2_500, ge=1, le=4_000)
     llm_budget_usd: float = Field(default=25.0, gt=0, le=25.0)
     llm_budget_ledger_path: str = Field(
         default=".devdoc-llm-budget.sqlite3",
@@ -234,6 +234,19 @@ class Settings(BaseSettings):
             if len(normalized) > 50:
                 raise ValueError("At most 50 knowledge search domains may be configured")
         return normalized
+
+    # ------------------------------------------------------------------ #
+    # Observability & Telemetry (Phase 21)
+    # ------------------------------------------------------------------ #
+    metrics_enabled: bool = Field(default=True)
+    metrics_path: str = Field(default="/metrics")
+    opentelemetry_enabled: bool = Field(default=False)
+    otlp_endpoint: str | None = Field(default=None)
+
+    # ------------------------------------------------------------------ #
+    # Database Read Replica (Phase 24)
+    # ------------------------------------------------------------------ #
+    database_replica_url: str | None = Field(default=None)
 
     # ------------------------------------------------------------------ #
     # Convenience helpers

@@ -15,6 +15,7 @@ from redis.asyncio import Redis
 from starlette.responses import Response
 
 from app.core.config import settings
+from app.core.logging import logger
 from app.dependencies import get_token_payload
 
 _REDIS_TOKEN_BUCKET_SCRIPT = """
@@ -93,9 +94,13 @@ class TenantRateLimiter:
         )
         try:
             await self._redis.ping()
-        except Exception:
+            logger.info("Connected to distributed Redis rate limiter")
+        except Exception as exc:
+            logger.warning(
+                "Redis rate limiter unavailable (%s); falling back to in-memory rate limiting",
+                exc,
+            )
             await self.close()
-            raise
 
     async def close(self) -> None:
         if self._redis is not None:
@@ -134,22 +139,28 @@ class TenantRateLimiter:
             return RateLimitDecision(True, capacity, 0)
 
         if self._redis is not None:
-            ttl_ms = max(1_000, math.ceil(capacity / refill_per_second * 2_000))
-            result = await self._redis.eval(
-                _REDIS_TOKEN_BUCKET_SCRIPT,
-                1,
-                f"devdoc:ratelimit:{bucket_key}",
-                capacity,
-                refill_per_second,
-                1,
-                ttl_ms,
-            )
-            allowed, remaining, retry_ms = (int(value) for value in result)
-            return RateLimitDecision(
-                allowed=bool(allowed),
-                remaining=max(0, remaining),
-                retry_after_seconds=max(1, math.ceil(retry_ms / 1000)) if retry_ms else 0,
-            )
+            try:
+                ttl_ms = max(1_000, math.ceil(capacity / refill_per_second * 2_000))
+                result = await self._redis.eval(
+                    _REDIS_TOKEN_BUCKET_SCRIPT,
+                    1,
+                    f"devdoc:ratelimit:{bucket_key}",
+                    capacity,
+                    refill_per_second,
+                    1,
+                    ttl_ms,
+                )
+                allowed, remaining, retry_ms = (int(value) for value in result)
+                return RateLimitDecision(
+                    allowed=bool(allowed),
+                    remaining=max(0, remaining),
+                    retry_after_seconds=max(1, math.ceil(retry_ms / 1000)) if retry_ms else 0,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Redis rate limiter failed during evaluation (%s); falling back to in-memory rate limiter",
+                    exc,
+                )
 
         now = time.monotonic()
         idle_ttl = max(1.0, capacity / refill_per_second * 2)

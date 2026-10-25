@@ -13,6 +13,9 @@ env/
 # Environment files (never commit real credentials)
 .env
 *.env
+.env.*
+*.backup
+*.sql
 backend/.devdoc-llm-budget.sqlite3*
 
 # Testing

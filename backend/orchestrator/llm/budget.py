@@ -54,40 +54,44 @@ class LLMBudgetGuard:
     def _initialize_ledger(self) -> None:
         assert self._ledger_path is not None
         self._ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self._ledger_path, timeout=30) as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS llm_budget_state (
-                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-                    budget_usd REAL NOT NULL,
-                    input_rate REAL NOT NULL,
-                    output_rate REAL NOT NULL,
-                    spent_usd REAL NOT NULL DEFAULT 0
+        connection = sqlite3.connect(self._ledger_path, timeout=30)
+        try:
+            with connection:
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS llm_budget_state (
+                        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                        budget_usd REAL NOT NULL,
+                        input_rate REAL NOT NULL,
+                        output_rate REAL NOT NULL,
+                        spent_usd REAL NOT NULL DEFAULT 0
+                    )
+                    """
                 )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS llm_budget_reservations (
-                    reservation_id TEXT PRIMARY KEY,
-                    reserved_cost_usd REAL NOT NULL
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS llm_budget_reservations (
+                        reservation_id TEXT PRIMARY KEY,
+                        reserved_cost_usd REAL NOT NULL
+                    )
+                    """
                 )
-                """
-            )
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO llm_budget_state
-                    (singleton, budget_usd, input_rate, output_rate)
-                VALUES (1, ?, ?, ?)
-                """,
-                (self._budget_usd, self._input_rate, self._output_rate),
-            )
-            config = connection.execute(
-                """
-                SELECT budget_usd, input_rate, output_rate
-                FROM llm_budget_state WHERE singleton = 1
-                """
-            ).fetchone()
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO llm_budget_state
+                        (singleton, budget_usd, input_rate, output_rate)
+                    VALUES (1, ?, ?, ?)
+                    """,
+                    (self._budget_usd, self._input_rate, self._output_rate),
+                )
+                config = connection.execute(
+                    """
+                    SELECT budget_usd, input_rate, output_rate
+                    FROM llm_budget_state WHERE singleton = 1
+                    """
+                ).fetchone()
+        finally:
+            connection.close()
         expected = (self._budget_usd, self._input_rate, self._output_rate)
         if config != expected:
             raise ValueError(
@@ -212,23 +216,29 @@ class LLMBudgetGuard:
     async def remaining_usd(self) -> float:
         async with self._lock:
             if self._ledger_path is not None:
-                with sqlite3.connect(self._ledger_path, timeout=30) as connection:
+                connection = sqlite3.connect(self._ledger_path, timeout=30)
+                try:
                     spent = connection.execute(
                         "SELECT spent_usd FROM llm_budget_state WHERE singleton = 1"
                     ).fetchone()[0]
                     pending = connection.execute(
                         "SELECT COALESCE(SUM(reserved_cost_usd), 0) FROM llm_budget_reservations"
                     ).fetchone()[0]
+                finally:
+                    connection.close()
                 return max(0.0, self._budget_usd - spent - pending)
             return max(0.0, self._budget_usd - self._spent_usd - self._pending_usd)
 
     async def spent_usd(self) -> float:
         async with self._lock:
             if self._ledger_path is not None:
-                with sqlite3.connect(self._ledger_path, timeout=30) as connection:
+                connection = sqlite3.connect(self._ledger_path, timeout=30)
+                try:
                     return connection.execute(
                         "SELECT spent_usd FROM llm_budget_state WHERE singleton = 1"
                     ).fetchone()[0]
+                finally:
+                    connection.close()
             return self._spent_usd
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:

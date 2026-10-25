@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_authenticated_db, require_active_user, require_project_access
@@ -20,6 +20,7 @@ from app.schemas.investigation import (
     InvestigationDeleteResponse,
     InvestigationListResponse,
     InvestigationResponse,
+    InvestigationRunResponse,
     InvestigationStatusUpdate,
     InvestigationUpdate,
 )
@@ -218,3 +219,59 @@ async def delete_investigation(
         message="Investigation deleted successfully",
         investigation_id=deleted_id,
     )
+
+
+@router.post("/{investigation_id}/run", response_model=InvestigationRunResponse)
+@router.post("/{investigation_id}/run/", response_model=InvestigationRunResponse, include_in_schema=False)
+async def run_investigation(
+    project_id: uuid.UUID,
+    incident_id: uuid.UUID,
+    investigation_id: uuid.UUID,
+    project: Project = Depends(require_project_access),
+    current_user: User = Depends(require_active_user),
+    db: AsyncSession = Depends(get_authenticated_db),
+) -> InvestigationRunResponse:
+    """Trigger an operational investigation run synchronously and persist its results.
+
+    Enforces:
+    1. Authenticated user has access to project_id (enforced by require_project_access & RLS).
+    2. incident_id exists and strictly belongs to project_id.
+    3. investigation_id exists and strictly belongs to incident_id.
+    4. Lifecycle validation: rejects terminal investigations (422) or already running investigations (409).
+    5. Persists collected evidence, root-cause summary, fix proposal, and verified approval artifact.
+    """
+    incident = await InvestigationService.get_incident_for_project(
+        db=db,
+        project=project,
+        incident_id=incident_id,
+    )
+    investigation = await InvestigationService.get_investigation(
+        db=db,
+        project=project,
+        incident=incident,
+        investigation_id=investigation_id,
+    )
+
+    if investigation.status == InvestigationStatus.RUNNING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Investigation '{investigation.id}' is already running",
+        )
+
+    result = await InvestigationService.run_investigation_orchestration(
+        db=db,
+        project=project,
+        incident=incident,
+        investigation=investigation,
+    )
+
+    base_resp = InvestigationResponse.model_validate(investigation)
+    return InvestigationRunResponse(
+        **base_resp.model_dump(),
+        evidence_count=getattr(result, "evidence_count", 0),
+        has_root_cause_analysis=getattr(result, "has_root_cause_analysis", False),
+        has_fix_proposal=getattr(result, "has_fix_proposal", False),
+        approval_artifact_id=getattr(result, "approval_artifact_id", None),
+        approval_status=getattr(result, "approval_status", None),
+    )
+

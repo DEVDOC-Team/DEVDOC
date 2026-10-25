@@ -13,6 +13,7 @@ from orchestrator.core.errors import (
     StageNotFoundError,
     WorkflowValidationError,
 )
+from orchestrator.core.factory import create_operational_orchestrator
 from orchestrator.core.orchestrator import DEVDOCOrchestrator
 from orchestrator.core.result import (
     AgentResult,
@@ -37,4 +38,5 @@ __all__ = [
     "StageNotFoundError",
     "StageResult",
     "WorkflowValidationError",
+    "create_operational_orchestrator",
 ]

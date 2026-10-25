@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import re
+import tarfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -144,13 +146,22 @@ class DockerSandboxProvider:
             started = await self._run(["start", container_id], timeout=20, output_limit=4096)
             if started.returncode:
                 raise DockerSandboxError("Docker could not start the isolated sandbox")
+            tar_stream = io.BytesIO()
+            with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+                for item in source.iterdir():
+                    tar.add(item, arcname=item.name)
+            tar_bytes = tar_stream.getvalue()
+
             copied = await self._run(
-                ["cp", f"{workspace_path}/.", f"{container_id}:/workspace"],
+                ["exec", "-i", container_id, "tar", "-C", "/workspace", "-xf", "-"],
+                input_bytes=tar_bytes,
                 timeout=60,
                 output_limit=4096,
             )
             if copied.returncode:
-                raise DockerSandboxError("Docker could not copy the bounded workspace")
+                raise DockerSandboxError(
+                    f"Docker could not extract workspace into container: {copied.stderr.strip()[:200]}"
+                )
         except SandboxProviderError:
             await self.cleanup(handle)
             raise
@@ -232,17 +243,30 @@ class DockerSandboxProvider:
         *,
         timeout: int,
         output_limit: int,
+        input_bytes: bytes | None = None,
     ) -> _CommandOutput:
         try:
             process = await asyncio.create_subprocess_exec(
                 self.executable,
                 *args,
-                stdin=asyncio.subprocess.DEVNULL,
+                stdin=asyncio.subprocess.PIPE if input_bytes is not None else asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
         except OSError as exc:
             raise DockerSandboxError("Docker CLI could not be started") from exc
+
+        stdin_task = None
+        if input_bytes is not None and process.stdin is not None:
+            async def _write_stdin() -> None:
+                try:
+                    process.stdin.write(input_bytes)
+                    await process.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    process.stdin.close()
+            stdin_task = asyncio.create_task(_write_stdin())
 
         async def collect(stream: asyncio.StreamReader) -> tuple[bytes, bool]:
             output = bytearray()
@@ -261,6 +285,8 @@ class DockerSandboxProvider:
         stderr_task = asyncio.create_task(collect(process.stderr))
         try:
             await asyncio.wait_for(process.wait(), timeout=timeout)
+            if stdin_task is not None:
+                await stdin_task
             (stdout, stdout_truncated), (stderr, stderr_truncated) = await asyncio.gather(
                 stdout_task,
                 stderr_task,
@@ -268,11 +294,15 @@ class DockerSandboxProvider:
         except TimeoutError as exc:
             process.kill()
             await process.wait()
+            if stdin_task is not None:
+                await asyncio.gather(stdin_task, return_exceptions=True)
             await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
             raise SandboxCommandTimeout("Docker operation exceeded its time limit") from exc
         except asyncio.CancelledError:
             process.kill()
             await process.wait()
+            if stdin_task is not None:
+                await asyncio.gather(stdin_task, return_exceptions=True)
             await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
             raise
         marker = "\nOUTPUT_TRUNCATED"

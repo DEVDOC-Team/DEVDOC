@@ -60,7 +60,7 @@ else:
     )
 
 # ---------------------------------------------------------------------------
-# Session factory
+# Session factory & Optional Read Replica (Phase 24)
 # ---------------------------------------------------------------------------
 
 AsyncSessionLocal = async_sessionmaker(
@@ -71,18 +71,46 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
+if settings.database_replica_url:
+    replica_engine = create_async_engine(settings.database_replica_url, **_engine_kwargs)
+    AsyncReplicaSessionLocal = async_sessionmaker(
+        bind=replica_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+    logger.info("Database read-replica engine configured")
+else:
+    replica_engine = engine
+    AsyncReplicaSessionLocal = AsyncSessionLocal
+
 
 # ---------------------------------------------------------------------------
-# FastAPI dependency
+# FastAPI dependencies
 # ---------------------------------------------------------------------------
 
 
 async def get_db() -> AsyncGenerator[AsyncSession]:
-    """Yield an async database session; roll back on error and always close."""
+    """Yield an async primary database session; roll back on error and always close."""
     async with AsyncSessionLocal() as session:
         try:
             yield session
             await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+async def get_read_only_db() -> AsyncGenerator[AsyncSession]:
+    """Yield a read-only async session from the replica engine (or primary if unconfigured)."""
+    async with AsyncReplicaSessionLocal() as session:
+        try:
+            yield session
+            # Never commit writes on read-only session
+            await session.rollback()
         except Exception:
             await session.rollback()
             raise

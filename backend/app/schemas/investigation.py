@@ -111,3 +111,14 @@ class InvestigationDeleteResponse(BaseModel):
     success: bool = True
     message: str = "Investigation deleted successfully"
     investigation_id: uuid.UUID
+
+
+class InvestigationRunResponse(InvestigationResponse):
+    """Response returned upon running an investigation orchestration."""
+
+    evidence_count: int = 0
+    has_root_cause_analysis: bool = False
+    has_fix_proposal: bool = False
+    approval_artifact_id: uuid.UUID | None = None
+    approval_status: str | None = None
+

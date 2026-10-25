@@ -115,7 +115,11 @@ def test_ip_bucket_protects_unauthenticated_requests(
 
 def test_production_settings_require_shared_redis() -> None:
     with pytest.raises(ValueError, match="RATE_LIMIT_REDIS_URL"):
-        Settings(environment="production", trusted_hosts=["api.example.com"])
+        Settings(
+            environment="production",
+            trusted_hosts=["api.example.com"],
+            rate_limit_redis_url="",
+        )
 
     production_settings = Settings(
         environment="production",
@@ -145,6 +149,9 @@ def test_protected_api_route_enforces_quota_through_app(
         ip_refill_per_second=1,
     )
     monkeypatch.setattr(rate_limit, "rate_limiter", limiter)
+    import app.main as app_module
+
+    monkeypatch.setattr(app_module, "rate_limiter", limiter)
     tenant_id = uuid.uuid4()
     project_id = uuid.uuid4()
     monkeypatch.setitem(

@@ -1,6 +1,6 @@
 """Restrict direct authenticated-client writes to approval and audit records.
 
-Revision ID: 0008_restrict_client_approval_audit_writes
+Revision ID: 0008_restrict_approval_audit
 Revises: 0007_human_approval_audit
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "0008_restrict_client_approval_audit_writes"
+revision = "0008_restrict_approval_audit"
 down_revision = "0007_human_approval_audit"
 branch_labels = None
 depends_on = None

@@ -30,18 +30,16 @@ ENV APP_NAME="DEVDOC API" \
     ENVIRONMENT="production" \
     DEBUG="false" \
     HOST="0.0.0.0" \
-    PORT="8000" \
-    DATABASE_URL="" \
-    DIRECT_DATABASE_URL="" \
-    SUPABASE_URL="" \
-    SUPABASE_ANON_KEY="" \
-    SUPABASE_SERVICE_ROLE_KEY=""
+    PORT="8000"
 
 # Non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser \
     && chown -R appuser:appuser ${APP_HOME}
 
 USER appuser
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
 # NOTE: Run "alembic upgrade head" in your deployment pipeline BEFORE
 #       starting this container in production.  The application does NOT

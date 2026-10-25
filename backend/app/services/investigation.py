@@ -7,14 +7,22 @@ multi-level authorization (project + incident boundary) and data validation.
 
 from __future__ import annotations
 
+import json
 import uuid
+from dataclasses import dataclass
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.logging import logger
 from app.db.base import _utcnow
+from app.models.evidence import Evidence as StoredEvidence
+from app.models.evidence import EvidenceKind
+from app.models.fix_proposal import FixProposal as StoredFixProposal
+from app.models.fix_proposal import FixStatus
 from app.models.incident import Incident
 from app.models.investigation import Investigation, InvestigationStatus
 from app.models.project import Project
@@ -24,9 +32,64 @@ from app.schemas.investigation import (
     InvestigationStatusUpdate,
     InvestigationUpdate,
 )
+from app.services.approval import ApprovalService
 from orchestrator.core.context import InvestigationContext
+from orchestrator.core.factory import create_operational_orchestrator
 from orchestrator.core.orchestrator import DEVDOCOrchestrator
 from orchestrator.core.result import ExecutionStatus, OrchestrationResult
+from orchestrator.rca.models import RCAStatus
+from orchestrator.sandbox.models import VerificationStatus
+
+
+def _canonical_value(val: Any) -> str:
+    return json.dumps(val, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _canonical_model(model: Any) -> str:
+    if hasattr(model, "model_dump"):
+        return _canonical_value(model.model_dump(mode="json"))
+    return _canonical_value(model)
+
+
+def _map_evidence_kind(evidence_type: Any) -> EvidenceKind:
+    raw = evidence_type.value if hasattr(evidence_type, "value") else str(evidence_type)
+    mapping = {
+        "log_excerpt": EvidenceKind.LOG_EXCERPT,
+        "stack_trace": EvidenceKind.STACK_TRACE,
+        "metric_snapshot": EvidenceKind.METRIC_SNAPSHOT,
+        "metric": EvidenceKind.METRIC_SNAPSHOT,
+        "service_health": EvidenceKind.METRIC_SNAPSHOT,
+        "alert": EvidenceKind.METRIC_SNAPSHOT,
+        "config_diff": EvidenceKind.CONFIG_DIFF,
+        "commit_diff": EvidenceKind.COMMIT_DIFF,
+        "commit": EvidenceKind.COMMIT_DIFF,
+        "repository": EvidenceKind.OTHER,
+        "pull_request": EvidenceKind.OTHER,
+        "issue": EvidenceKind.OTHER,
+        "ci_log": EvidenceKind.CI_LOG,
+        "workflow_run": EvidenceKind.CI_LOG,
+        "container_log": EvidenceKind.CONTAINER_LOG,
+        "container": EvidenceKind.CONTAINER_LOG,
+        "container_state": EvidenceKind.CONTAINER_LOG,
+        "image": EvidenceKind.OTHER,
+        "documentation": EvidenceKind.DOCUMENTATION,
+        "external_knowledge": EvidenceKind.DOCUMENTATION,
+        "file_content": EvidenceKind.DOCUMENTATION,
+    }
+    return mapping.get(str(raw).lower(), EvidenceKind.OTHER)
+
+
+@dataclass
+class InvestigationRunResult(OrchestrationResult):
+    """Orchestration result enriched with persisted pipeline outputs."""
+
+    context: InvestigationContext | None = None
+    evidence_count: int = 0
+    has_root_cause_analysis: bool = False
+    has_fix_proposal: bool = False
+    approval_artifact_id: uuid.UUID | None = None
+    approval_status: str | None = None
+
 
 # ---------------------------------------------------------------------------
 # Allowed Status Lifecycle Transitions
@@ -339,20 +402,210 @@ class InvestigationService:
         )
 
     @staticmethod
+    async def _persist_evidence(
+        db: AsyncSession,
+        investigation: Investigation,
+        context: InvestigationContext,
+    ) -> int:
+        """Persist collected evidence items into the evidence table idempotently."""
+        if context.evidence_collection is None or not context.evidence_collection.items:
+            return 0
+
+        existing_stmt = select(StoredEvidence.id).where(StoredEvidence.investigation_id == investigation.id)
+        existing_ids = set((await db.scalars(existing_stmt)).all())
+
+        count = 0
+        for item in context.evidence_collection.items:
+            if item.evidence_id in existing_ids:
+                continue
+
+            raw_data = None
+            if item.data:
+                try:
+                    raw_data = json.dumps(item.data, default=str)
+                except Exception:
+                    raw_data = str(item.data)
+            elif item.summary:
+                raw_data = item.summary
+
+            source_meta = None
+            if item.provenance:
+                try:
+                    source_meta = json.dumps(item.provenance.to_dict(), default=str)
+                except Exception:
+                    source_meta = None
+
+            quality_score = None
+            if item.quality and item.quality.quality_score is not None:
+                quality_score = max(0, min(100, int(round(item.quality.quality_score * 100))))
+
+            source_ref = None
+            if item.provenance and item.provenance.source_reference:
+                source_ref = str(item.provenance.source_reference)[:2048]
+
+            ev_record = StoredEvidence(
+                id=item.evidence_id,
+                investigation_id=investigation.id,
+                kind=_map_evidence_kind(item.evidence_type),
+                label=(item.title or f"{item.source} evidence")[:512],
+                raw_content=raw_data,
+                source_url=source_ref,
+                source_metadata=source_meta,
+                collected_at=(item.provenance.collected_at if item.provenance else None) or item.timestamp,
+                relevance_score=quality_score,
+            )
+            db.add(ev_record)
+            existing_ids.add(item.evidence_id)
+            count += 1
+
+        await db.flush()
+        return count
+
+    @staticmethod
+    def _persist_rca(
+        investigation: Investigation,
+        context: InvestigationContext,
+    ) -> bool:
+        """Persist root-cause analysis summary and token metrics into the investigation record."""
+        if context.root_cause_analysis is None:
+            if not investigation.summary:
+                investigation.summary = (
+                    "Investigation completed without AI root-cause analysis "
+                    "(LLM reasoning disabled or unconfigured)."
+                )
+            return False
+
+        rca = context.root_cause_analysis
+        if rca.status == RCAStatus.ROOT_CAUSE_IDENTIFIED and rca.selected_root_cause:
+            investigation.summary = (
+                f"Root Cause Identified: {rca.selected_root_cause.statement}\n"
+                f"Confidence: {rca.confidence.value.upper()}\n"
+                f"Category: {rca.selected_root_cause.category.value}\n\n"
+                f"{rca.reasoning_summary}"
+            )
+        elif rca.status == RCAStatus.MULTIPLE_PLAUSIBLE_CAUSES:
+            investigation.summary = (
+                f"Multiple Plausible Causes Identified (Confidence: {rca.confidence.value.upper()}):\n\n"
+                f"{rca.reasoning_summary}"
+            )
+        else:
+            investigation.summary = (
+                f"Insufficient Evidence for Root Cause (Confidence: {rca.confidence.value.upper()}):\n\n"
+                f"{rca.reasoning_summary}"
+            )
+
+        if rca.model_metadata:
+            meta = rca.model_metadata
+            tokens = (getattr(meta, "input_tokens", 0) or 0) + (getattr(meta, "output_tokens", 0) or 0)
+            investigation.tokens_used += tokens
+            cost = getattr(meta, "estimated_cost_usd", 0.0) or 0.0
+            if cost:
+                investigation.estimated_cost_usd += round(cost * 1_000_000)
+
+        return True
+
+    @staticmethod
+    async def _persist_fix_proposal(
+        db: AsyncSession,
+        investigation: Investigation,
+        context: InvestigationContext,
+    ) -> bool:
+        """Persist generated fix proposal into the fix_proposals table idempotently."""
+        if context.fix_proposal is None:
+            return False
+
+        proposal = context.fix_proposal
+        existing = await db.get(StoredFixProposal, proposal.proposal_id)
+
+        verification = context.sandbox_verification_result
+        if verification is not None:
+            if verification.status == VerificationStatus.PASSED:
+                target_status = FixStatus.AWAITING_APPROVAL
+            elif verification.status in (
+                VerificationStatus.FAILED,
+                VerificationStatus.TIMEOUT,
+                VerificationStatus.UNSAFE,
+                VerificationStatus.SETUP_FAILED,
+            ):
+                target_status = FixStatus.SANDBOX_FAILED
+            else:
+                target_status = FixStatus.SANDBOX_PENDING
+            sandbox_run_id = str(verification.verification_id)
+            sandbox_log = verification.summary
+        else:
+            target_status = FixStatus.DRAFT
+            sandbox_run_id = None
+            sandbox_log = None
+
+        proposal_payload = _canonical_model(proposal)
+        affected_files = _canonical_value(
+            sorted(
+                {
+                    change.target_path
+                    for change in proposal.changes
+                    if change.target_path is not None
+                }
+            )
+        )
+        confidence_score = max(0, min(100, round(proposal.confidence * 100)))
+
+        if existing is None:
+            record = StoredFixProposal(
+                id=proposal.proposal_id,
+                investigation_id=investigation.id,
+                created_by_id=None,
+                title=proposal.summary[:512],
+                description=proposal.rationale,
+                patch_content=proposal_payload,
+                affected_files=affected_files,
+                status=target_status,
+                sandbox_run_id=sandbox_run_id,
+                sandbox_log=sandbox_log,
+                confidence_score=confidence_score,
+            )
+            db.add(record)
+        else:
+            existing.status = target_status
+            existing.sandbox_run_id = sandbox_run_id
+            existing.sandbox_log = sandbox_log
+            existing.confidence_score = confidence_score
+            existing.title = proposal.summary[:512]
+            existing.description = proposal.rationale
+            existing.patch_content = proposal_payload
+            existing.affected_files = affected_files
+
+        if proposal.model_metadata:
+            meta = proposal.model_metadata
+            tokens = (getattr(meta, "input_tokens", 0) or 0) + (getattr(meta, "output_tokens", 0) or 0)
+            investigation.tokens_used += tokens
+            cost = getattr(meta, "estimated_cost_usd", 0.0) or 0.0
+            if cost:
+                investigation.estimated_cost_usd += round(cost * 1_000_000)
+
+        await db.flush()
+        return True
+
+    @staticmethod
     async def run_investigation_orchestration(
         db: AsyncSession,
         project: Project,
         incident: Incident,
         investigation: Investigation,
         orchestrator: DEVDOCOrchestrator | None = None,
-    ) -> OrchestrationResult:
-        """Execute the investigation orchestrator and persist final lifecycle state.
+    ) -> InvestigationRunResult:
+        """Execute the investigation orchestrator and persist all pipeline results.
 
         Guarantees:
         - Must be in PENDING or RUNNING status prior to execution.
         - Automatically transitions PENDING -> RUNNING upon execution start.
-        - Transitions to COMPLETED, FAILED, or CANCELLED based on OrchestrationResult.
-        - Updates error_message and completed_at upon completion.
+        - Rejects terminal investigations (422).
+        - Executes all pipeline stages (Collect, Analyze, RCA, Fix, Sandbox Verification).
+        - Persists collected evidence to PostgreSQL evidence model idempotently.
+        - Persists root cause analysis summary and token metrics to investigation model.
+        - Persists generated fix proposal to fix_proposals model with appropriate status.
+        - Persists approval review artifact when verification genuinely passes.
+        - Never fabricates passing verification results or auto-approves fixes.
+        - Transitions investigation status to COMPLETED, FAILED, or CANCELLED.
         - Flushes state to database.
         """
         # Validate boundary
@@ -374,23 +627,81 @@ class InvestigationService:
             investigation.started_at = _utcnow()
             await db.flush()
 
-        engine = orchestrator if orchestrator is not None else DEVDOCOrchestrator()
+        async def _approval_recorder(ctx: InvestigationContext) -> uuid.UUID:
+            if (
+                ctx.sandbox_verification_result is None
+                or ctx.sandbox_verification_result.status != VerificationStatus.PASSED
+            ):
+                raise ValueError("Cannot record approval artifact for non-passing verification")
+            return await ApprovalService.record_verified_artifact(db, ctx)
+
+        engine = (
+            orchestrator
+            if orchestrator is not None
+            else create_operational_orchestrator(
+                config=settings,
+                approval_artifact_recorder=_approval_recorder,
+            )
+        )
         context = InvestigationService.build_orchestration_context(investigation)
 
-        result = await engine.execute(context)
+        try:
+            result = await engine.execute(context)
+        except Exception as exc:
+            logger.exception(
+                "Investigation orchestrator execution failed with an unhandled exception",
+                extra={
+                    "investigation_id": str(investigation.id),
+                    "incident_id": str(incident.id),
+                    "project_id": str(project.id),
+                },
+            )
+            await InvestigationService._persist_evidence(db, investigation, context)
+            investigation.status = InvestigationStatus.FAILED
+            investigation.completed_at = _utcnow()
+            investigation.error_message = f"Orchestrator execution error: {exc}"
+            await db.flush()
+            raise
 
-        # Map execution result to Investigation lifecycle status
+        # 1. Persist valid evidence items
+        evidence_count = await InvestigationService._persist_evidence(db, investigation, context)
+
+        # 2. Persist RCA
+        has_rca = InvestigationService._persist_rca(investigation, context)
+
+        # 3. Persist Fix Proposal
+        has_fix = await InvestigationService._persist_fix_proposal(db, investigation, context)
+
+        # 4. Check and persist approval artifact if genuinely passed and not yet recorded
+        artifact_id = context.approval_artifact_id
+        if (
+            artifact_id is None
+            and context.sandbox_verification_result is not None
+            and context.sandbox_verification_result.status == VerificationStatus.PASSED
+            and context.root_cause_analysis is not None
+            and context.fix_proposal is not None
+        ):
+            try:
+                artifact_id = await ApprovalService.record_verified_artifact(db, context)
+                context.approval_artifact_id = artifact_id
+                context.approval_status = "awaiting_human_review"
+            except Exception as exc:
+                logger.warning("Could not record verified approval artifact: %s", exc)
+
+        # 5. Map execution result to Investigation lifecycle status
         if result.status == ExecutionStatus.SUCCESS:
             investigation.status = InvestigationStatus.COMPLETED
             investigation.completed_at = _utcnow()
+            investigation.error_message = None
         elif result.status == ExecutionStatus.CANCELLED:
             investigation.status = InvestigationStatus.CANCELLED
             investigation.completed_at = _utcnow()
+            if result.error_message:
+                investigation.error_message = result.error_message
         else:
             investigation.status = InvestigationStatus.FAILED
             investigation.completed_at = _utcnow()
-            if result.error_message:
-                investigation.error_message = result.error_message
+            investigation.error_message = result.error_message or "Investigation orchestration failed"
 
         await db.flush()
         await db.refresh(investigation)
@@ -403,7 +714,33 @@ class InvestigationService:
                 "project_id": str(project.id),
                 "orchestration_status": result.status.value,
                 "investigation_status": investigation.status.value,
+                "evidence_count": evidence_count,
+                "has_rca": has_rca,
+                "has_fix": has_fix,
+                "artifact_id": str(artifact_id) if artifact_id else None,
             },
         )
-        return result
+
+        return InvestigationRunResult(
+            execution_id=result.execution_id,
+            investigation_id=result.investigation_id,
+            incident_id=result.incident_id,
+            project_id=result.project_id,
+            workflow_id=result.workflow_id,
+            status=result.status,
+            stage_results=result.stage_results,
+            metadata=result.metadata,
+            warnings=result.warnings,
+            error_message=result.error_message,
+            started_at=result.started_at,
+            completed_at=result.completed_at,
+            duration_ms=result.duration_ms,
+            context=context,
+            evidence_count=evidence_count,
+            has_root_cause_analysis=has_rca,
+            has_fix_proposal=has_fix,
+            approval_artifact_id=artifact_id,
+            approval_status=context.approval_status,
+        )
+
 
