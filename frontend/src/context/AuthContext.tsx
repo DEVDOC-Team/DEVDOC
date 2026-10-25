@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { clearStoredToken, getStoredToken, setStoredToken, ApiError } from '../api/client';
+import { clearStoredToken, getStoredToken, setStoredToken, setOnUnauthorized, ApiError } from '../api/client';
 import { getMyProfile } from '../api/auth';
 import type { User } from '../api/types';
 
@@ -28,12 +28,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearError = useCallback(() => setError(null), []);
 
-  const signOut = useCallback(() => {
+  const signOut = useCallback((reason?: string) => {
     clearStoredToken();
     setToken(null);
     setUser(null);
     setStatus('unauthenticated');
-    setError(null);
+    if (reason) {
+      setError(reason);
+    }
   }, []);
 
   const refreshUser = useCallback(async () => {
@@ -72,8 +74,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [signOut]);
 
-  // Initial session restoration on mount
+  // Initial session restoration on mount and global 401 subscription
   useEffect(() => {
+    setOnUnauthorized(() => {
+      signOut('Session expired or authentication required (401). Please sign in.');
+    });
+
     const existing = getStoredToken();
     if (existing) {
       refreshUser();
@@ -81,7 +87,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsAuthResolving(false);
       setStatus('unauthenticated');
     }
-  }, [refreshUser]);
+
+    return () => {
+      setOnUnauthorized(null);
+    };
+  }, [refreshUser, signOut]);
 
   const signInWithToken = useCallback(
     async (rawToken: string, persist = true): Promise<{ success: boolean; error?: string }> => {

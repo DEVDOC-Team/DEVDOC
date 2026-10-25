@@ -105,7 +105,7 @@ export const ApprovalsView: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [showDemoIfEmpty, setShowDemoIfEmpty] = useState<boolean>(true);
+  const [showDemoIfEmpty, setShowDemoIfEmpty] = useState<boolean>(false);
 
   const rationaleTextareaId = useId();
 
@@ -250,15 +250,23 @@ export const ApprovalsView: React.FC = () => {
             <AlertCircle size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
             <div>
               <div style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b', letterSpacing: '0.04em' }}>
-                DEMO DATA — NOT A LIVE INCIDENT
+                DEMO DATA — NOT LIVE SYSTEM DATA
               </div>
               <div style={{ fontSize: '11px', color: 'var(--devdoc-fg-muted)', marginTop: '2px' }}>
                 The approval queue currently displays a simulated reference item (PaymentClient connection leak remediation). Decisions on demo items are simulated locally and will NOT execute production changes or invoke backend endpoints.
               </div>
             </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => setShowDemoIfEmpty(false)} style={{ flexShrink: 0 }}>
-            Hide Demo Item
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setShowDemoIfEmpty(false);
+              refreshInvestigations();
+            }}
+            style={{ flexShrink: 0 }}
+          >
+            Return to Live Mode
           </Button>
         </div>
       )}
@@ -463,9 +471,16 @@ export const ApprovalsView: React.FC = () => {
             <p style={{ fontSize: '12px', color: 'var(--devdoc-fg-muted)', maxWidth: '420px', margin: '0 auto 16px auto', lineHeight: 1.5 }}>
               There are no pending or terminal fix proposals matching your filter. Run an investigation to generate verified remediation patches.
             </p>
-            <Button variant="secondary" size="sm" onClick={() => refreshInvestigations()}>
-              Refresh State
-            </Button>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+              <Button variant="secondary" size="sm" onClick={() => refreshInvestigations()}>
+                Refresh State
+              </Button>
+              {!showDemoIfEmpty && (
+                <Button variant="secondary" size="sm" onClick={() => setShowDemoIfEmpty(true)}>
+                  Load Demo Approval Scenario
+                </Button>
+              )}
+            </div>
           </div>
         </Panel>
       )}

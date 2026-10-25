@@ -59,6 +59,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const refreshProjects = useCallback(async () => {
     if (status !== 'authenticated') {
       setProjects([]);
+      setError(null);
+      setLoading(false);
       return;
     }
 
@@ -94,7 +96,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
     } catch (err: any) {
       if (err instanceof ApiError) {
-        setError(err.message);
+        if (err.isUnauthorized) {
+          setError('Session expired or authentication required. Please sign in to view projects.');
+          setProjects([]);
+        } else if (err.isForbidden) {
+          setError('Account access forbidden (403). You do not have permission to view projects.');
+        } else {
+          setError(err.message);
+        }
       } else {
         setError(err.message || 'Failed to load projects');
       }

@@ -59,7 +59,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <aside className={`app-sidebar ${mobileOpen ? "mobile-open" : ""}`}>
         <div className="sidebar-header">
           <div className="sidebar-brand">
-            <Activity size={20} color="var(--devdoc-accent)" />
+            <img
+              src="/assets/devdoc-logo.jpg"
+              alt="DevDOC Logo"
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 6,
+                objectFit: "cover",
+                flexShrink: 0,
+                boxShadow: "0 0 8px rgba(245, 158, 11, 0.3)",
+              }}
+            />
             <span className="brand-text">DEVDOC</span>
             <span className="brand-sub">AUTONOMOUS</span>
           </div>

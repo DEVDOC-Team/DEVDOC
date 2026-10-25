@@ -105,7 +105,7 @@ export const AuditView: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [showDemoIfEmpty, setShowDemoIfEmpty] = useState<boolean>(true);
+  const [showDemoIfEmpty, setShowDemoIfEmpty] = useState<boolean>(false);
 
   const fetchAuditEvents = useCallback(async () => {
     if (!selectedProject || !activeInvestigation) {
@@ -222,15 +222,23 @@ export const AuditView: React.FC = () => {
             <AlertCircle size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
             <div>
               <div style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b', letterSpacing: '0.04em' }}>
-                DEMO DATA — NOT A LIVE AUDIT TRAIL
+                DEMO DATA — NOT LIVE SYSTEM DATA
               </div>
               <div style={{ fontSize: '11px', color: 'var(--devdoc-fg-muted)', marginTop: '2px' }}>
                 The audit ledger currently displays sample demonstration records. No live audit events have been recorded for this investigation yet.
               </div>
             </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => setShowDemoIfEmpty(false)} style={{ flexShrink: 0 }}>
-            Hide Sample Records
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setShowDemoIfEmpty(false);
+              fetchAuditEvents();
+            }}
+            style={{ flexShrink: 0 }}
+          >
+            Return to Live Mode
           </Button>
         </div>
       )}
@@ -395,8 +403,20 @@ export const AuditView: React.FC = () => {
         }
       >
         {filteredRecords.length === 0 ? (
-          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--devdoc-fg-muted)', fontSize: '12px' }}>
-            No audit records match your query or have been recorded for this investigation yet.
+          <div style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--devdoc-fg-muted)', fontSize: '12px' }}>
+            <div style={{ marginBottom: '8px' }}>
+              No audit records match your query or have been recorded for this investigation yet.
+            </div>
+            {!showDemoIfEmpty && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowDemoIfEmpty(true)}
+                style={{ marginTop: '6px' }}
+              >
+                Load Demo Audit Scenario
+              </Button>
+            )}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>

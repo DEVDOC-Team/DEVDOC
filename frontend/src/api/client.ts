@@ -75,6 +75,13 @@ export const clearStoredToken = (): void => {
   }
 };
 
+export type UnauthorizedListener = () => void;
+let unauthorizedListener: UnauthorizedListener | null = null;
+
+export const setOnUnauthorized = (listener: UnauthorizedListener | null): void => {
+  unauthorizedListener = listener;
+};
+
 export const getApiBaseUrl = (): string => {
   return (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8000';
 };
@@ -152,11 +159,17 @@ export async function apiClient<T>(endpoint: string, options: RequestOptions = {
 
     if (!response.ok) {
       let errorMessage = `Request failed with status ${response.status}`;
-      if (bodyData && typeof bodyData === 'object' && bodyData.detail) {
+      if (bodyData && typeof bodyData === 'object') {
         if (typeof bodyData.detail === 'string') {
           errorMessage = bodyData.detail;
         } else if (Array.isArray(bodyData.detail)) {
           errorMessage = bodyData.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+        } else if (bodyData.error && typeof bodyData.error === 'object' && typeof bodyData.error.message === 'string') {
+          errorMessage = bodyData.error.message;
+        } else if (typeof bodyData.error === 'string') {
+          errorMessage = bodyData.error;
+        } else if (typeof bodyData.message === 'string') {
+          errorMessage = bodyData.message;
         }
       } else if (typeof bodyData === 'string' && bodyData.trim()) {
         errorMessage = bodyData.slice(0, 200);
@@ -164,6 +177,13 @@ export async function apiClient<T>(endpoint: string, options: RequestOptions = {
 
       if (response.status === 401) {
         clearStoredToken();
+        if (unauthorizedListener) {
+          try {
+            unauthorizedListener();
+          } catch {
+            // Non-fatal
+          }
+        }
       }
 
       throw new ApiError(response.status, errorMessage, bodyData);

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { useAuth } from './AuthContext';
 import { useProjects } from './ProjectContext';
 import { listIncidents, createIncident as apiCreateIncident } from '../api/incidents';
 import {
@@ -44,6 +45,7 @@ export interface IncidentContextValue {
 const IncidentContext = createContext<IncidentContextValue | undefined>(undefined);
 
 export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { status: authStatus } = useAuth();
   const { selectedProjectId } = useProjects();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
@@ -75,11 +77,12 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Fetch incidents for current selected project with cancellation
   const refreshIncidents = useCallback(async () => {
-    if (!selectedProjectId) {
+    if (!selectedProjectId || authStatus !== 'authenticated') {
       setIncidents([]);
       setSelectedIncidentId(null);
       setInvestigations([]);
       setActiveApproval(null);
+      setLoadingIncidents(false);
       return;
     }
 
@@ -115,7 +118,7 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       setLoadingIncidents(false);
     }
-  }, [selectedProjectId]);
+  }, [selectedProjectId, authStatus]);
 
   // Project change triggers incident refresh and state reset
   useEffect(() => {
@@ -129,10 +132,11 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Fetch investigations for selected incident
   const refreshInvestigations = useCallback(async () => {
-    if (!selectedProjectId || !selectedIncidentId) {
+    if (!selectedProjectId || !selectedIncidentId || selectedIncidentId === 'INC-2291' || authStatus !== 'authenticated') {
       setInvestigations([]);
       setApprovals([]);
       setActiveApproval(null);
+      setLoadingInvestigations(false);
       return;
     }
 
@@ -166,7 +170,7 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       setLoadingInvestigations(false);
     }
-  }, [selectedProjectId, selectedIncidentId]);
+  }, [selectedProjectId, selectedIncidentId, authStatus]);
 
   useEffect(() => {
     refreshInvestigations();

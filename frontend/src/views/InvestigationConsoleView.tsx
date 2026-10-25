@@ -774,9 +774,19 @@ export const InvestigationConsoleView: React.FC<InvestigationConsoleViewProps> =
                     <div className="evidence-text">
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span className="evidence-title">{item.desc}</span>
-                        <span className="epistemic-tag epistemic-fact" style={{ fontSize: '8px', padding: '1px 4px' }}>
-                          FACT
-                        </span>
+                        {item.classification === 'fact' ? (
+                          <span className="epistemic-tag epistemic-fact" style={{ fontSize: '8px', padding: '1px 4px' }}>
+                            FACT
+                          </span>
+                        ) : item.classification === 'inferred' ? (
+                          <span className="epistemic-tag epistemic-inferred" style={{ fontSize: '8px', padding: '1px 4px' }}>
+                            INFERRED
+                          </span>
+                        ) : (
+                          <span className="epistemic-tag epistemic-knowledge" style={{ fontSize: '8px', padding: '1px 4px' }}>
+                            KNOWLEDGE
+                          </span>
+                        )}
                       </div>
                       <span className="evidence-ref">{item.meta}</span>
                     </div>

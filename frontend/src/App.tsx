@@ -33,13 +33,29 @@ const AppContent: React.FC = () => {
           height: '100vh',
           background: 'var(--devdoc-canvas)',
           color: 'var(--devdoc-fg-muted)',
-          gap: '12px',
+          gap: '16px',
         }}
       >
-        <StatusPulse status="accent" />
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: '12px', letterSpacing: '0.1em' }}>
-          INITIALIZING DEVDOC SESSION...
-        </span>
+        <img
+          src="/assets/devdoc-logo.jpg"
+          alt="DevDOC Logo"
+          style={{
+            width: 76,
+            height: 76,
+            borderRadius: 16,
+            boxShadow: '0 0 32px rgba(245, 158, 11, 0.25), 0 0 12px rgba(245, 158, 11, 0.15)',
+            objectFit: 'cover',
+          }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <StatusPulse status="accent" />
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: '13px', letterSpacing: '0.08em', color: 'var(--devdoc-fg)', fontWeight: 600 }}>
+            Initializing DevDOC investigation engine...
+          </span>
+        </div>
+        <div style={{ fontSize: '11px', color: 'var(--devdoc-fg-muted)', letterSpacing: '0.04em' }}>
+          Autonomous AI DevOps & SRE Incident Platform
+        </div>
       </div>
     );
   }
@@ -123,7 +139,7 @@ const AppContent: React.FC = () => {
       case 'audit':
         return <AuditView />;
       case 'projects':
-        return <ProjectsView />;
+        return <ProjectsView onNavigate={(route) => setActiveRoute(route as NavRoute)} />;
       case 'settings':
         return <SettingsView />;
       case 'signin':

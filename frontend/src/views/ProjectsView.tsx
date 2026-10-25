@@ -3,6 +3,7 @@ import { useProjects } from '../context/ProjectContext';
 import { Panel } from '../components/ui/Panel';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
+import { useAuth } from '../context/AuthContext';
 import {
   FolderGit2,
   Plus,
@@ -12,9 +13,16 @@ import {
   Trash2,
   Lock,
   Globe,
+  LogIn,
+  ShieldAlert,
 } from 'lucide-react';
 
-export const ProjectsView: React.FC = () => {
+export interface ProjectsViewProps {
+  onNavigate?: (route: string) => void;
+}
+
+export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
+  const { status: authStatus, error: authError } = useAuth();
   const {
     projects,
     selectedProjectId,
@@ -88,7 +96,7 @@ export const ProjectsView: React.FC = () => {
             variant="secondary"
             size="sm"
             onClick={refreshProjects}
-            disabled={loading}
+            disabled={loading || authStatus === 'unauthenticated'}
             icon={<RefreshCw size={13} className={loading ? 'spin' : ''} />}
           >
             Refresh
@@ -97,40 +105,97 @@ export const ProjectsView: React.FC = () => {
             variant="primary"
             size="sm"
             onClick={() => {
+              if (authStatus === 'unauthenticated' && onNavigate) {
+                onNavigate('signin');
+                return;
+              }
               setCreateError(null);
               setShowCreateModal(true);
             }}
-            icon={<Plus size={14} />}
+            icon={authStatus === 'unauthenticated' ? <LogIn size={14} /> : <Plus size={14} />}
           >
-            Create Project
+            {authStatus === 'unauthenticated' ? 'Sign In to Create' : 'Create Project'}
           </Button>
         </div>
       </div>
 
-      {error && (
-        <div
-          style={{
-            padding: '12px 14px',
-            background: 'var(--devdoc-status-bad-bg)',
-            border: '1px solid var(--devdoc-status-bad-border)',
-            borderRadius: 'var(--radius-sm)',
-            color: 'var(--devdoc-status-bad)',
-            fontSize: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            margin: '14px 0',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <AlertTriangle size={16} />
-            <span>{error}</span>
+      {authStatus === 'unauthenticated' ? (
+        <Panel style={{ textAlign: 'center', padding: '48px 24px', marginTop: '16px' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              padding: '16px',
+              borderRadius: '50%',
+              background: 'rgba(56, 189, 248, 0.1)',
+              color: 'var(--devdoc-accent)',
+              marginBottom: '16px',
+            }}
+          >
+            <Lock size={32} />
           </div>
-          <Button variant="ghost" size="sm" onClick={refreshProjects}>
-            Retry
-          </Button>
-        </div>
-      )}
+          <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--devdoc-fg)', marginBottom: '8px' }}>
+            Authentication Required
+          </h3>
+          <p style={{ fontSize: '13px', color: 'var(--devdoc-fg-muted)', maxWidth: '460px', margin: '0 auto 20px', lineHeight: 1.6 }}>
+            Monitored projects, repository bindings, and isolated Docker test sandboxes are protected workspace resources. Please authenticate with your Bearer access token to inspect and manage projects.
+          </p>
+          {(authError || error) && (
+            <div
+              style={{
+                maxWidth: '460px',
+                margin: '0 auto 20px',
+                padding: '10px 14px',
+                background: 'var(--devdoc-status-bad-bg)',
+                border: '1px solid var(--devdoc-status-bad-border)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--devdoc-status-bad)',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                textAlign: 'left',
+              }}
+            >
+              <ShieldAlert size={16} style={{ flexShrink: 0 }} />
+              <span>{authError || error}</span>
+            </div>
+          )}
+          {onNavigate && (
+            <Button
+              variant="primary"
+              onClick={() => onNavigate('signin')}
+              icon={<LogIn size={14} />}
+            >
+              Sign In to DEVDOC
+            </Button>
+          )}
+        </Panel>
+      ) : (
+        <>
+          {error && (
+            <div
+              style={{
+                padding: '12px 14px',
+                background: 'var(--devdoc-status-bad-bg)',
+                border: '1px solid var(--devdoc-status-bad-border)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--devdoc-status-bad)',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                margin: '14px 0',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={16} />
+                <span>{error}</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={refreshProjects}>
+                Retry
+              </Button>
+            </div>
+          )}
 
       {/* Loading Skeleton */}
       {loading && projects.length === 0 && (
@@ -278,6 +343,8 @@ export const ProjectsView: React.FC = () => {
             );
           })}
         </div>
+      )}
+        </>
       )}
 
       {/* Create Project Modal */}
