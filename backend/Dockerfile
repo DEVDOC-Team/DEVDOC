@@ -1,4 +1,4 @@
-# DEVDOC backend — Phase 1 foundation image
+# DEVDOC backend — Phase 2 image
 # Base: python:3.13-slim  |  User: appuser (non-root)
 FROM python:3.13-slim
 
@@ -8,12 +8,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR ${APP_HOME}
 
-# Install only what is needed at runtime
+# System dependencies: curl (health probes) + libpq (asyncpg needs no system libpq,
+# but psycopg2-binary does; using asyncpg only so libpq not needed here)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies first (improves layer caching)
+# Install Python dependencies (layer-cached before source copy)
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
@@ -23,7 +24,7 @@ COPY . .
 
 EXPOSE 8000
 
-# Runtime environment defaults (no secrets; override via docker run -e or compose)
+# Runtime environment defaults (no secrets — inject via docker run -e or compose)
 ENV APP_NAME="DEVDOC API" \
     APP_VERSION="0.1.0" \
     ENVIRONMENT="production" \
@@ -31,10 +32,16 @@ ENV APP_NAME="DEVDOC API" \
     HOST="0.0.0.0" \
     PORT="8000"
 
-# Create a non-root user and hand over ownership
+# Non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser \
     && chown -R appuser:appuser ${APP_HOME}
 
 USER appuser
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
+# NOTE: Run "alembic upgrade head" in your deployment pipeline BEFORE
+#       starting this container in production.  The application does NOT
+#       auto-create or migrate tables on startup.
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

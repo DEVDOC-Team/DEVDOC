@@ -4,7 +4,13 @@ __pycache__/
 *.pyd
 *.db
 .env
+.env.*
 .git/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .venv/
 venv/
+*.log
+tests/
+scripts/
