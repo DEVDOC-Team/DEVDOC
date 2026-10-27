@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Clock, Menu, User as UserIcon, LogOut, LogIn } from "lucide-react";
+import { Clock, User as UserIcon, LogOut, LogIn } from "lucide-react";
 import { Badge } from "../ui/Badge";
 import { StatusPulse } from "../ui/StatusPulse";
 import { useAuth } from "../../context/AuthContext";
@@ -7,14 +7,12 @@ import { useProjects } from "../../context/ProjectContext";
 import "./layout.css";
 
 export interface TopBarProps {
-  onToggleMobile: () => void;
   onNavigateSignIn?: () => void;
   breadcrumb?: string;
   incidentTitle?: string;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
-  onToggleMobile,
   onNavigateSignIn,
   breadcrumb,
   incidentTitle = "Checkout API 5xx spike",
@@ -26,7 +24,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   useEffect(() => {
     const update = () => {
       const now = new Date();
-      setUtcTime(now.toTimeString().split(" ")[0] + "Z");
+      setUtcTime(now.toTimeString().split(" ")[0] + "S");
     };
     update();
     const interval = setInterval(update, 1000);
@@ -46,15 +44,6 @@ export const TopBar: React.FC<TopBarProps> = ({
   return (
     <header className="app-topbar" aria-label="Main header">
       <div className="topbar-left">
-        <button
-          className="mobile-nav-toggle btn-ghost"
-          onClick={onToggleMobile}
-          aria-label="Toggle navigation menu"
-          style={{ padding: "6px", display: "inline-flex" }}
-        >
-          <Menu size={18} />
-        </button>
-
         <div>
           <span
             style={{
@@ -122,8 +111,8 @@ export const TopBar: React.FC<TopBarProps> = ({
               display: "inline-flex",
               alignItems: "center",
               gap: "6px",
-              background: "rgba(56, 189, 248, 0.1)",
-              border: "1px solid rgba(56, 189, 248, 0.3)",
+              background: "rgba(174, 184, 192, 0.1)",
+              border: "1px solid rgba(174, 184, 192, 0.3)",
               color: "var(--devdoc-accent)",
               padding: "4px 10px",
               borderRadius: "var(--radius-sm)",
@@ -138,7 +127,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         <span className="topbar-item">
           <Clock size={14} color="var(--devdoc-fg-muted)" />
-          <span>{utcTime || "14:26:41Z"}</span>
+          <span>{utcTime || "14:26:41S"}</span>
         </span>
 
         <div className="topbar-live-tag">

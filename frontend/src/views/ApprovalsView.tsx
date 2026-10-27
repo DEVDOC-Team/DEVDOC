@@ -274,12 +274,9 @@ export const ApprovalsView: React.FC = () => {
       {/* Header Banner */}
       <div className="incident-header-banner">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 700, color: 'var(--devdoc-fg)' }}>
-              Human Approval Gate & Review Queue
-            </h1>
-            <Badge variant="neutral">Phase 18 Governance</Badge>
-          </div>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 700, color: 'var(--devdoc-fg)' }}>
+            Human Approval Gate & Review Queue
+          </h1>
           <p style={{ fontSize: '12px', color: 'var(--devdoc-fg-muted)', marginTop: '4px' }}>
             Authoritative human review gate for autonomous fix proposals. Verifies sandbox execution, risk matrix, and rollback plan before any merge.
             {selectedProject && (

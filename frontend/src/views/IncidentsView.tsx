@@ -340,7 +340,7 @@ export const IncidentsView: React.FC<IncidentsViewProps> = ({ onSelectIncident }
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(10, 16, 32, 0.75)',
+            background: 'rgba(16, 18, 20, 0.75)',
             backdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',

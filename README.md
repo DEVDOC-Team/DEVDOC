@@ -1,8 +1,8 @@
 # DEVDOC
 
-**DEVDOC** is an AI-powered DevOps and SRE incident investigation and remediation platform. It provides development and operations teams with an automated, evidence-grounded pipeline to investigate operational outages, analyze system telemetry, diagnose root causes, and generate proposed fixes for later sandbox verification and human approval.
+**DEVDOC** is a web application for investigating operational incidents and preparing safe, reviewable remediation proposals. Its React frontend provides an operator workspace for projects, incidents, investigations, approvals, and audit history. The FastAPI backend provides authenticated APIs, persistence, and an investigation orchestrator that gathers evidence and can optionally use external reasoning and search providers.
 
-> **Current Status**: Phases 1–16.1, opt-in Phase 17 sandbox verification, and Phase 18 human approval and audit are implemented. Phase 19 includes targeted database write-boundary hardening, not a full security certification. Phase 20 implements tenant quotas and burst protection; production requires a shared Redis service and deployment-specific trusted-host configuration. Sandbox verification and artifact persistence require explicit dependency injection. Production remediation is not implemented.
+> **Project status:** The React frontend is implemented. The backend status matrix records phases 1-26 as complete or implemented within the stated scope. The verification report records 482 passed, 14 skipped, and 0 failed tests on October 25, 2026; see that report for its scope and environment. LLM reasoning, knowledge search, sandbox verification, and artifact recording are opt-in integrations. Human approval records a decision only; automated production changes and incident resolution are not implemented. Phase 19 covers specific database write-boundary hardening and is not a security certification. Production rate limiting requires shared Redis and trusted deployment configuration.
 
 ---
 
@@ -10,7 +10,7 @@
 
 ## What is DEVDOC?
 
-DEVDOC automates the end-to-end operational incident lifecycle through a secure, structured investigation pipeline:
+DEVDOC supports an operator-led incident investigation and review workflow:
 
 ```
 Detect
@@ -29,12 +29,12 @@ Verify in Sandbox
   ↓
 Human Approval
   ↓
-Resolve
+Record Decision
 ```
 
-* **Implemented Today (Phases 1–16.1)**: Backend foundation, Supabase database models and RLS, JWT authentication, project and incident APIs, persisted incident/investigation chat history, GitHub inspection, the orchestrator, evidence engine, opt-in LLM/search/RCA/fix generation, and non-executing remediation proposals.
-* **Implemented (Phase 17, opt-in)**: Provider-based sandbox verification with a deterministic fake provider and a Docker provider that disables networking, avoids host mounts/environment inheritance, and applies bounded resource controls.
-* **Implemented (Phase 18)**: Human-only review of passing sandbox results, fingerprint-bound approval requests, authorization, expiry, and append-only audit. No production execution or resolution is exposed.
+* **Implemented (Phases 1-16.1)**: Backend foundation, Supabase models and RLS, JWT authentication, project and incident APIs, chat history, GitHub inspection, orchestration, evidence processing, optional reasoning/search, RCA, and non-executing fix proposals.
+* **Implemented (Phase 17, opt-in)**: Isolated sandbox verification using explicitly injected trusted commands and a source workspace.
+* **Implemented (Phase 18)**: Human-only review and audit of eligible proposals. Approval does not apply patches or perform production changes.
 
 
 ## Why DEVDOC?
@@ -48,7 +48,7 @@ Resolve
 
 # 2. Architecture
 
-The high-level DEVDOC platform architecture enforces strict separation between API handling, database persistence, and future autonomous AI orchestration:
+The DEVDOC platform separates the frontend, API handling, authorization, database persistence, and investigation orchestration:
 
 ```
                User / Web Frontend
@@ -107,36 +107,39 @@ Authentication & JWT            Authoritative Project
 
 # 3. Technology Stack
 
-### Current Implementation (Phases 1–9)
+### Current full-stack implementation
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| Language | Python 3.13+ | Modern backend runtime |
-| API Framework | FastAPI | High-performance asynchronous REST endpoints |
-| ASGI Server | Uvicorn | Asynchronous HTTP server |
+| Frontend | React 19, TypeScript 6, Vite 8 | Browser application and build tooling |
+| Frontend assets | Lucide React, CSS, Source Sans 3 | Icons, styling, and locally bundled typography |
+| Backend runtime | Python 3.13, FastAPI, Uvicorn | Asynchronous REST API |
 | Request/Response Validation | Pydantic v2 | Strict schema validation with `extra="forbid"` |
 | Settings & Config | pydantic-settings | Type-safe environment variable management |
 | ORM & Queries | SQLAlchemy 2.0 (Async) | Asynchronous PostgreSQL persistence layer |
 | Database & Auth | PostgreSQL 16 / Supabase | Relational store with Row Level Security (RLS) |
 | Database Migrations | Alembic | Version-controlled database schema migrations |
-| Testing | pytest + pytest-asyncio + HTTPX | Asynchronous unit, integration, and security test suite |
-| Code Quality & Linting | Ruff | High-performance static analysis and formatting |
-| Containerization | Docker | Reproducible containerized runtimes |
+| Local/test database | SQLite, aiosqlite | Lightweight fallback and isolated tests |
+| Integrations | HTTPX, GitHub API; optional Nebius and Tavily | Repository inspection, reasoning, and knowledge search |
+| Rate limiting | Redis when configured | Shared limits across production workers |
+| Testing | pytest, pytest-asyncio, HTTPX, Vitest | Backend and frontend test suites |
+| Code quality | Ruff, Oxlint | Backend and frontend linting |
+| Container and CI | Docker, GitHub Actions | Backend image and automated CI workflow |
 
-### Future Technologies (Phases 15+)
+### Optional integrations and guarded workflow stages
 
-| Component | Planned Technology | Target Phase |
+| Component | Current implementation | Phase |
 |---|---|---|
-| Root cause diagnosis | Evidence-grounded causal analysis (opt-in Nemotron) | Phase 15 |
-| Fix generation | RCA- and evidence-grounded proposals; no execution | Phase 16 |
-| Sandbox Execution | Isolated Docker / MicroVM Environments | Phase 17 |
-| Human approval and audit | Verification-bound human decisions and immutable audit; no production execution | Phase 18 |
+| Root-cause reasoning | Evidence-grounded analysis; external LLM reasoning is opt-in | Phase 15 |
+| Fix generation | Validated remediation proposals; no automatic execution | Phase 16 |
+| Sandbox verification | Isolated Docker provider; opt-in with trusted inputs | Phase 17 |
+| Human approval and audit | Verification-bound human decision; no production execution | Phase 18 |
 
 ---
 
 # 4. Project Status / Roadmap
 
-DEVDOC is being delivered across 26 systematic development phases. Phases 1 through 9 establish the complete production-grade backend and data foundation.
+The repository documents 26 backend phases alongside the implemented React frontend. Production deployment still requires environment-specific configuration and validation.
 
 | Phase | Status | Title | Description |
 |:---:|:---:|---|---|
@@ -159,14 +162,14 @@ DEVDOC is being delivered across 26 systematic development phases. Phases 1 thro
 | 16.1 | ✅ Complete | Chat History | Persisted, paginated, incident-scoped conversations and user/assistant messages, optionally linked to an investigation |
 | 17 | ✅ Implemented (opt-in) | Sandbox Verification | Isolated, bounded verification of Phase 16 proposals; injected trusted commands only; no production access |
 | 18 | ✅ Complete | Human Approval & Audit | Human-only decisions bound to passing Phase 17 verification; immutable audit; no production execution |
-| 19 | ⏳ Planned | Security Hardening | Rate limiting, header security, advanced secret sanitization |
-| 20 | ⏳ Planned | API Rate Limiting | Tenant-based request quotas, burst protection |
-| 21 | ⏳ Planned | Observability | Prometheus metrics, OpenTelemetry distributed tracing |
-| 22 | ⏳ Planned | Load Testing | Locust stress testing, database concurrency validation |
-| 23 | ⏳ Planned | Docker & CI/CD | Production multi-stage Docker builds, GitHub Actions CI/CD |
-| 24 | ⏳ Planned | Production Architecture | Multi-region deployment, read replicas, caching tier |
-| 25 | ⏳ Planned | Complete Backend Evaluation | Comprehensive end-to-end evaluation and verification suite |
-| 26 | ⏳ Planned | Complete Documentation | Final architecture manuals, API specifications, operator runbooks |
+| 19 |✅ Complete| Targeted implementation | Security Hardening | Approval/audit database write-boundary hardening; not a full security certification |
+| 20 |✅ Complete| Implemented | API Rate Limiting | Tenant-based quotas and IP burst protection; production requires shared Redis |
+| 21 | ✅ Complete|Implemented | Observability | Prometheus metrics; OpenTelemetry collector is optional |
+| 22 | ✅ Complete|Implemented | Load Testing | Locust and concurrency scenarios; benchmark is not a production capacity guarantee |
+| 23 | ✅ Complete|Implemented | Docker & CI/CD | Non-root backend Docker image and GitHub Actions CI workflow |
+| 24 | ✅ Complete|Implemented in documented scope | Production Architecture | Primary/read-replica routing and resilience design; multi-region cloud deployment deferred |
+| 25 | ✅ Complete|Complete | Backend Evaluation | Regression verification recorded in the backend report |
+| 26 |✅ Complete| Complete | Documentation | Project, backend, frontend, and security guides |
 
 ---
 
@@ -207,7 +210,7 @@ devdoc/
 │   │   │   ├── session.py        # Async engine & sessionmaker factories
 │   │   │   └── migrations/
 │   │   │       ├── env.py        # Alembic runtime environment
-│   │   │       └── versions/     # Versioned migration scripts (0001–0006)
+│   │   │       └── versions/     # Versioned migration scripts (0001-0008)
 │   │   ├── models/               # SQLAlchemy ORM models
 │   │   │   ├── chat.py           # Phase 16.1 conversations and messages
 │   │   │   ├── approval.py
@@ -246,13 +249,17 @@ devdoc/
 │   │   ├── sandbox/              # Phase 17 providers, isolation, patching, and verification
 │   │   └── tests/                # Deterministic orchestrator and LLM tests
 │   └── tests/                    # Backend API and database test suite
-├── frontend/                     # [Planned] React/Vite web application
-├── orchestrator/                 # [Phase 10 — Next] AI agent orchestrator package
-├── infra/                        # [Planned] Terraform & cloud infrastructure
-└── README.md                     # Project documentation
+├── frontend/                     # React/Vite operator web application
+├── .github/workflows/            # Backend CI workflow
+├── docs/                         # Product and demo documentation
+├── BACKEND_VERIFICATION_REPORT.md
+├── SECURITY.md                   # Security scope and deployment assumptions
+└── README.md                     # Project-wide overview and architecture
 ```
 
 ---
+
+See the [frontend guide](frontend/README.md) and [backend guide](backend/README.md) for package structure, setup, and development commands.
 
 # 6. Backend Architecture
 
@@ -287,7 +294,7 @@ PostgreSQL Engine with Supabase RLS
 
 ### Architectural Principles
 * **Thin API Handlers**: Routers do not contain SQL queries or complex business logic. They delegate directly to the service layer.
-* **Autonomous Orchestrator Separation**: AI agent orchestration will reside in `orchestrator/`, completely decoupled from REST request-response cycles.
+* **Orchestrator Separation**: Investigation orchestration is implemented in backend/orchestrator/ and invoked through backend services.
 * **Non-Bypassable RLS**: All queries pass through `get_authenticated_db`, ensuring PostgreSQL policies enforce boundaries even in the event of an application defect.
 
 ---
@@ -350,55 +357,7 @@ alembic upgrade head
 
 ---
 
-# 9. API Overview
-
-All API endpoints are versioned under `/api/v1`:
-
-Chat history is available under `/projects/{project_id}/incidents/{incident_id}/conversations`: create/list and retrieve/rename/delete conversations, and list/append messages at `/{conversation_id}/messages`. Conversation/message reads and writes require project access and validate the incident boundary; pagination is capped at 100.
-
-| Domain | Method | Endpoint | Description | Auth Required |
-|---|---|---|---|---|
-| **Health** | `GET` | `/api/v1/health` | Liveness health check | Public |
-| **Health** | `GET` | `/api/v1/ready` | Database readiness check | Public |
-| **Auth** | `POST` | `/api/v1/auth/sync` | Provision or synchronize user profile from JWT | Bearer JWT |
-| **Users** | `GET` | `/api/v1/users/me` | Retrieve authenticated user profile | Bearer JWT |
-| **Users** | `PATCH` | `/api/v1/users/me` | Update mutable user profile fields | Bearer JWT |
-| **Users** | `DELETE` | `/api/v1/users/me` | Deactivate account (soft delete) | Bearer JWT |
-| **Projects** | `POST` | `/api/v1/projects` | Create a new project | Bearer JWT |
-| **Projects** | `GET` | `/api/v1/projects` | List projects owned by authenticated user | Bearer JWT |
-| **Projects** | `GET` | `/api/v1/projects/{project_id}` | Retrieve project by ID | Bearer JWT + Owner |
-| **Projects** | `PATCH` | `/api/v1/projects/{project_id}` | Update project metadata | Bearer JWT + Owner |
-| **Projects** | `DELETE` | `/api/v1/projects/{project_id}` | Delete project (cascades resources) | Bearer JWT + Owner |
-| **GitHub** | `GET` | `/api/v1/github/connect` | Initiate OAuth flow with signed CSRF state | Bearer JWT |
-| **GitHub** | `GET` | `/api/v1/github/callback` | OAuth redirect callback | Public (State-bound) |
-| **GitHub** | `GET` | `/api/v1/github/connection` | Check connection status (tokens masked) | Bearer JWT |
-| **GitHub** | `DELETE` | `/api/v1/github/connection` | Disconnect GitHub account | Bearer JWT |
-| **GitHub** | `GET` | `/api/v1/github/repositories` | List accessible repositories | Bearer JWT |
-| **GitHub** | `POST` | `/api/v1/projects/{project_id}/github/repository` | Attach GitHub repo to project | Bearer JWT + Owner |
-| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/repository` | Get attached repository metadata | Bearer JWT + Owner |
-| **GitHub** | `DELETE` | `/api/v1/projects/{project_id}/github/repository` | Disconnect repository from project | Bearer JWT + Owner |
-| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/branches` | List repository branches | Bearer JWT + Owner |
-| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/commits` | List recent commits | Bearer JWT + Owner |
-| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/pulls` | List pull requests | Bearer JWT + Owner |
-| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/issues` | List repository issues | Bearer JWT + Owner |
-| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/contents` | Inspect file/directory contents | Bearer JWT + Owner |
-| **GitHub** | `GET` | `/api/v1/projects/{project_id}/github/workflows` | List GitHub Actions workflow runs | Bearer JWT + Owner |
-| **Incidents** | `POST` | `/api/v1/projects/{project_id}/incidents` | Create an incident | Bearer JWT + Owner |
-| **Incidents** | `GET` | `/api/v1/projects/{project_id}/incidents` | List project incidents (paginated/filtered) | Bearer JWT + Owner |
-| **Incidents** | `GET` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Retrieve incident details | Bearer JWT + Owner |
-| **Incidents** | `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Update mutable incident fields | Bearer JWT + Owner |
-| **Incidents** | `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}/status` | Dedicated lifecycle status transition | Bearer JWT + Owner |
-| **Incidents** | `DELETE` | `/api/v1/projects/{project_id}/incidents/{incident_id}` | Delete incident | Bearer JWT + Owner |
-| **Investigations** | `POST` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations` | Create an investigation | Bearer JWT + Owner |
-| **Investigations** | `GET` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations` | List investigations for incident | Bearer JWT + Owner |
-| **Investigations** | `GET` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations/{id}` | Retrieve investigation details | Bearer JWT + Owner |
-| **Investigations** | `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations/{id}` | Update mutable fields | Bearer JWT + Owner |
-| **Investigations** | `PATCH` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations/{id}/status` | Transition lifecycle status | Bearer JWT + Owner |
-| **Investigations** | `DELETE` | `/api/v1/projects/{project_id}/incidents/{incident_id}/investigations/{id}` | Delete investigation | Bearer JWT + Owner |
-
----
-
-# 10. Implemented Backend Phases
+# 9. Implemented Backend Phases
 
 ### Phase 5 — Authentication & Authorization
 * Validates Supabase JWTs cryptographically; enforces user mapping to verified `sub` claims.
@@ -424,7 +383,7 @@ Chat history is available under `/projects/{project_id}/incidents/{incident_id}/
 
 ---
 
-# 11. Phase 7 — GitHub Integration
+# 10. Phase 7 — GitHub Integration
 
 Phase 7 connects DEVDOC to GitHub repositories for investigation context:
 
@@ -454,7 +413,7 @@ Attached Repository ready for inspection (commits, PRs, workflows, contents)
 
 ---
 
-# 12. Phase 8 — Incident Management
+# 11. Phase 8 — Incident Management
 
 ### Incident Lifecycle State Machine
 
@@ -492,7 +451,7 @@ Attached Repository ready for inspection (commits, PRs, workflows, contents)
 
 ---
 
-# 13. Phase 9 — Investigation API
+# 12. Phase 9 — Investigation API
 
 Phase 9 establishes the investigation data contract and execution lifecycle.
 
@@ -534,7 +493,7 @@ Phase 9 establishes the investigation data contract and execution lifecycle.
 
 ---
 
-# 14. Investigation Pipeline: Phases 10+
+# 13. Investigation Pipeline: Phases 10+
 
 > **Status: Phases 10–18 implemented; sandbox verification and approval-artifact persistence are opt-in**
 
@@ -587,7 +546,7 @@ Production Resolution [Not implemented]
 
 ---
 
-# 15. AI Reasoning and Knowledge Search
+# 14. AI Reasoning and Knowledge Search
 
 > **Status: Implemented — Phase 13 (opt-in; no model call at startup or in tests)**
 
@@ -640,7 +599,7 @@ Phase 15 evaluates ranked incident-specific hypotheses from the Phase 12 evidenc
 
 All Phase 15 automated tests use a fake provider. There is no real-model smoke test enabled by default; a real request occurs only when an operator explicitly constructs and injects the configured Nebius service, and it consumes the existing Phase 13 budget.
 
-## Phase 16 — Fix Generator
+## Phase 15 — Fix Generator
 
 > **Status: Implemented — opt-in proposals only; no remediation is executed**
 
@@ -667,7 +626,7 @@ Conversations are scoped to a project and incident and may optionally reference 
 * **Contract**: Only `user` and `assistant` roles are accepted; writes reject blank content and extra fields. Pagination is capped at 100 records.
 * **Integration boundary**: Chat history may retain context for prior Phase 15 diagnosis, Phase 16 proposals, and Phase 17 verification, but does not alter those contracts or execute actions.
 
-## Phase 17 — Sandbox Verification
+## Phase 16 — Sandbox Verification
 
 > **Status: Implemented — opt-in; Docker execution was not exercised during implementation**
 
@@ -679,7 +638,7 @@ Conversations are scoped to a project and incident and may optionally reference 
 * **Safety and cleanup**: Workspace copying omits VCS metadata and credential paths; symlinks, traversal, absolute paths, sensitive targets, and unsupported patches are rejected. Execution and output are bounded. Provider cleanup runs after normal completion, failure, timeout, or cancellation; labeled stale containers can be removed through explicit orphan cleanup.
 * **Result**: Typed outcomes include `PASSED`, `FAILED`, `INCONCLUSIVE`, `TIMEOUT`, `CANCELLED`, `UNSAFE`, and `SETUP_FAILED`. Results are carried in the orchestrator VERIFY stage/context; no verification database table, public execution API, new LLM call, GitHub write, or production action is added.
 
-## Phase 18 — Human Approval & Audit
+## Phase 17 — Human Approval & Audit
 
 > **Status: Implemented — approval is human-only; no remediation execution**
 
@@ -692,13 +651,13 @@ Phase 18 lets an authorized project owner or platform administrator review a fix
 * **Orchestration boundary**: The VERIFY stage only persists review artifacts when a trusted recorder is explicitly injected. A passing result marks the proposal as awaiting human review; it does not itself approve anything. The default pipeline does not enable a sandbox provider or recorder.
 * **No production action**: There is no patch application, GitHub write, deployment, rollback, or incident resolution in this phase. Sandbox and approval tests use local fixtures; they do not execute production operations.
 
-## Phase 19 — Security Hardening
+## Phase 18 — Security Hardening
 
 > **Status: Targeted changes implemented — database write-boundary hardening only; broader security controls are not certified**
 
 Migration `0008_restrict_client_approval_audit_writes` closes authenticated-role direct writes that could forge audit events or record approval decisions without the service's verification eligibility checks. It preserves project-scoped reads and database-generated approval lifecycle events. See [SECURITY.md](./SECURITY.md) for the audit findings, threat model, deployment assumptions, tested scope, and remaining limitations. Apply migrations through the latest revision; PostgreSQL integration tests require an isolated test database.
 
-## Phase 20 — API Rate Limiting
+## Phase 19 — API Rate Limiting
 
 > **Status: Implemented — configure shared Redis before production deployment**
 
@@ -708,10 +667,11 @@ Migration `0008_restrict_client_approval_audit_writes` closes authenticated-role
 * **Failure behavior**: Production settings require rate limiting to remain enabled and `RATE_LIMIT_REDIS_URL` to be configured. Redis connection/ping failures prevent startup; the limiter does not fail open. Local development can use the bounded in-memory backend, which is process-local and must not be used as a production substitute.
 * **Operations**: Set `RATE_LIMIT_REDIS_URL` to a private, authenticated Redis endpoint and tune the capacities/refill rates in the environment. If running behind a reverse proxy, configure the ASGI server's trusted proxy list so source-IP protection uses the actual client address; never trust arbitrary forwarded-for headers.
 
-# 16. Local Development
+# 15. Local Development
 
 ### Prerequisites
 * Python 3.13 or higher
+* Node.js and npm (for the frontend)
 * Docker (for local PostgreSQL / Supabase testing)
 * Git
 
@@ -748,7 +708,18 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
-# 17. Testing & Quality
+### Frontend development
+
+In a second terminal, run these commands from the frontend directory:
+
+    npm ci
+    Copy-Item .env.example .env
+    npm run dev
+
+Vite serves the app at http://localhost:5173 by default. Set VITE_API_BASE_URL in frontend/.env if the backend is not running at http://localhost:8000. See frontend/README.md for build, lint, and test commands.
+
+---
+# 16. Testing & Quality
 
 DEVDOC maintains an asynchronous test suite covering unit logic, REST endpoints, security boundaries, and PostgreSQL Row Level Security.
 
@@ -770,16 +741,10 @@ python -m pytest tests/test_phase9_investigations.py -v
 python -m ruff check .
 ```
 
-> **Verification Snapshot (Phase 11 Completion)**:
-> * Full Test Suite: **288 passed, 14 skipped, 0 failed** (100% pass rate across 302 tests).
-> * Phase 11 Operational Agent Tests: **38 passed, 0 failed** (100% pass rate).
-> * Phase 10 Orchestrator Tests: **55 passed, 0 failed** (100% pass rate).
-> * Ruff Lint Check: **All checks passed!** (0 errors, 0 warnings).
-> * Mypy Analysis: **Clean across all Phase 11 and Orchestrator modules**.
-
+> **Backend verification snapshot (October 25, 2026):** 482 passed, 14 skipped, and 0 failures. The complete report and its environment details are in BACKEND_VERIFICATION_REPORT.md.
 ---
 
-# 18. Docker
+# 17. Docker
 
 A containerized runtime is provided via `backend/Dockerfile` for local integration and testing:
 
@@ -810,7 +775,7 @@ The PostgreSQL RLS tests skip when `TEST_POSTGRESQL_URL` is unavailable. Use onl
 
 ---
 
-# 19. Team & Ownership
+# 18. Team & Ownership
 
 DEVDOC is built and maintained by a 5-member engineering team:
 
@@ -824,7 +789,7 @@ DEVDOC is built and maintained by a 5-member engineering team:
 
 ---
 
-# 20. Git Workflow
+# 19. Git Workflow
 
 DEVDOC uses a structured Git branching strategy to guarantee stability:
 
@@ -848,7 +813,7 @@ feature/phase-X  (Scoped feature branches)
 
 ---
 
-# 21. Development Rules
+# 20. Development Rules
 
 1. **Strict Branch Scoping**: Each pull request must address exactly one development phase or feature. Unrelated modifications are prohibited.
 2. **Mandatory Quality Gates**: Every branch must pass `python -m ruff check .` and the complete `python -m pytest -v` regression suite before PR creation.
@@ -858,285 +823,7 @@ feature/phase-X  (Scoped feature branches)
 
 ---
 
-# 22. Environment Variables
-
-Configure `.env` locally using `backend/.env.example` as a template:
-
-| Variable | Description | Example / Default |
-|---|---|---|
-| `ENVIRONMENT` | Deployment environment | `development`, `staging`, `production` |
-| `RATE_LIMIT_ENABLED` | Enable tenant quotas and IP burst protection (mandatory in production) | `true` |
-| `RATE_LIMIT_REDIS_URL` | Shared Redis URL (required in production) | `redis://:password@redis.internal:6379/0` |
-| `RATE_LIMIT_TENANT_CAPACITY` | Initial account token-bucket capacity | `120` |
-| `RATE_LIMIT_TENANT_REFILL_PER_SECOND` | Account quota refill rate | `2` |
-| `RATE_LIMIT_IP_CAPACITY` | Initial source-IP burst capacity | `120` |
-| `RATE_LIMIT_IP_REFILL_PER_SECOND` | Source-IP refill rate | `10` |
-| `RATE_LIMIT_MEMORY_MAX_ENTRIES` | Maximum local in-memory buckets (development only) | `10000` |
-| `DATABASE_URL` | Async PostgreSQL connection string | `postgresql+asyncpg://postgres:postgres@localhost:5432/devdoc` |
-| `DIRECT_DATABASE_URL` | Direct connection for Alembic migrations | `postgresql+asyncpg://postgres:postgres@localhost:5432/devdoc` |
-| `SUPABASE_URL` | Supabase project URL | `https://your-project.supabase.co` |
-| `SUPABASE_JWT_SECRET` | Secret key for JWT verification | `minimum-32-characters-secret-key` |
-| `SUPABASE_JWT_ALGORITHM` | JWT signing algorithm | `HS256` |
-| `SUPABASE_JWT_AUDIENCE` | Expected JWT audience | `authenticated` |
-| `SUPABASE_JWT_ISSUER` | Expected JWT issuer | `https://your-project.supabase.co/auth/v1` |
-| `GITHUB_CLIENT_ID` | GitHub OAuth application client ID | `your-github-client-id` |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth application client secret | `your-github-client-secret` |
-| `GITHUB_OAUTH_REDIRECT_URI` | GitHub OAuth callback redirect URI | `http://localhost:8000/api/v1/github/callback` |
-| `GITHUB_API_BASE_URL` | GitHub API base URL | `https://api.github.com` |
-| `LLM_ENABLED` | Enable live Phase 13 reasoning; defaults to disabled | `false` |
-| `NEBIUS_API_KEY` | Server-side Nebius token API key | Leave empty until explicitly enabling |
-| `NEBIUS_BASE_URL` | Nebius OpenAI-compatible API base URL | `https://api.studio.nebius.ai/v1` |
-| `NEBIUS_MODEL` | Nemotron model identifier | `nvidia/Llama-3.1-Nemotron-70B-Instruct` |
-| `LLM_TIMEOUT_SECONDS` | Per-request HTTP timeout (maximum 120 seconds) | `30` |
-| `LLM_MAX_ATTEMPTS` | Maximum attempts per request (maximum 3) | `2` |
-| `LLM_MAX_INPUT_TOKENS` | Maximum conservative input-size budget | `12000` |
-| `LLM_MAX_OUTPUT_TOKENS` | Provider output-token ceiling | `1000` |
-| `LLM_BUDGET_USD` | Process guard ceiling; cannot exceed project credit budget | `25` |
-| `LLM_BUDGET_LEDGER_PATH` | Persistent SQLite spend/reservation ledger path | `.devdoc-llm-budget.sqlite3` |
-| `LLM_INPUT_COST_PER_MILLION_USD` | Current Nebius input price for configured model | `0` (must be configured to enable) |
-| `LLM_OUTPUT_COST_PER_MILLION_USD` | Current Nebius output price for configured model | `0` (must be configured to enable) |
-| `LLM_CACHE_TTL_SECONDS` | Successful-result in-memory cache TTL | `900` |
-| `LLM_CACHE_MAX_ENTRIES` | Maximum successful-result cache entries | `128` |
-| `KNOWLEDGE_SEARCH_ENABLED` | Enable explicit Phase 14 knowledge-search service construction | `false` |
-| `TAVILY_API_KEY` | Server-side Tavily API key; leave empty unless search is explicitly enabled | *(empty)* |
-| `KNOWLEDGE_SEARCH_TIMEOUT_SECONDS` | Maximum Tavily request timeout | `8` |
-| `KNOWLEDGE_SEARCH_MAX_RESULTS` | Maximum results per search | `5` |
-| `KNOWLEDGE_SEARCH_MAX_QUERY_LENGTH` | Maximum sanitized search-query length | `400` |
-| `KNOWLEDGE_SEARCH_MAX_RESPONSE_BYTES` | Maximum response size accepted | `250000` |
-| `KNOWLEDGE_SEARCH_MAX_RETRIES` | Bounded retry count | `1` |
-| `KNOWLEDGE_SEARCH_DEPTH` | Tavily search depth | `basic` |
-| `KNOWLEDGE_SEARCH_PREFERRED_DOMAINS` | Comma-separated preferred bare domains | *(empty)* |
-| `KNOWLEDGE_SEARCH_ALLOWED_DOMAINS` | Optional strict comma-separated result-domain allow-list | *(empty)* |
-| `KNOWLEDGE_SEARCHES_PER_INVESTIGATION` | Maximum provider attempts per investigation window | `2` |
-| `KNOWLEDGE_SEARCH_MAX_CONCURRENT` | Maximum in-flight provider calls per service instance | `2` |
-| `KNOWLEDGE_SEARCH_CACHE_TTL_SECONDS` | Successful-result cache lifetime | `600` |
-| `KNOWLEDGE_SEARCH_CACHE_MAX_ENTRIES` | Maximum cached results | `128` |
-
----
-
-# 23. Current Limitations & Phase Status
-
-Phases 10–17 provide the orchestration framework, investigation agents, bounded evidence processing, opt-in reasoning/search/RCA/fix generation, incident-scoped chat history, and an opt-in sandbox verification stage:
-
-### IMPLEMENTED (Phase 10 — DEVDOC Orchestrator)
-* **Orchestration Engine**: Central DEVDOCOrchestrator coordinating sequential stage execution, failure handling, and execution tracing (ackend/orchestrator/core/orchestrator.py).
-* **Investigation Context**: Strongly typed InvestigationContext with UUID validation, timestamping, audit logs, and strict credential/secret prevention (ackend/orchestrator/core/context.py).
-* **Stage Model**: Canonical 8-stage lifecycle contracts (INITIALIZE → COLLECT → ANALYZE → DIAGNOSE → PROPOSE → VERIFY → HUMAN_APPROVAL → COMPLETE) (ackend/orchestrator/contracts/stage.py, ackend/orchestrator/stages/investigation.py).
-* **Agent Abstraction & Mock Agent**: Standardized BaseAgent contract and deterministic MockInvestigationAgent with zero external network or AI token calls (ackend/orchestrator/contracts/agent.py, ackend/orchestrator/agents/base.py).
-* **Workflow Definition & Failure Policy**: WorkflowDefinition supporting deterministic FAIL_FAST halting of downstream stages upon critical errors (ackend/orchestrator/contracts/execution.py).
-* **Stage Registry**: Injected StageRegistry providing stage lookup, registration, duplicate detection, and deterministic ordering (ackend/orchestrator/stages/registry.py).
-* **InvestigationService Integration**: Clean service-boundary integration methods uild_orchestration_context and 
-un_investigation_orchestration in ackend/app/services/investigation.py.
-
-### IMPLEMENTED (Phase 11 — Operational Investigation Agents)
-* **GitHub Agent (GitHubAgent)**: Structured inspection of repository metadata, branches, recent commits, pull requests, issues, bounded file contents, and GitHub Actions workflow runs. Reuses existing Phase 7 GitHubAPIClient without duplicating auth or exposing tokens (ackend/orchestrator/agents/github_agent.py).
-* **Docker Agent (DockerAgent)**: Structured inspection of container status, exit codes, OOMKilled flags, restart counts, image tags, and bounded log streams via DockerInspector abstraction (DockerHTTPInspector, FakeDockerInspector). Strictly prohibits arbitrary shell execution, os.system, and subprocess (ackend/orchestrator/agents/docker_agent.py, ackend/orchestrator/agents/docker_inspector.py).
-* **Monitoring Agent (MonitoringAgent)**: Vendor-neutral monitoring inspection via MonitoringProvider abstraction (GenericHTTPMonitoringProvider, FakeMonitoringProvider). Gathers service health, CPU/memory metrics, latency percentiles, error rates, and firing alerts. Enforces anti-SSRF protection against AWS/GCP/Azure link-local metadata endpoints (ackend/orchestrator/agents/monitoring_agent.py, ackend/orchestrator/agents/monitoring_provider.py).
-* **Operational Data Sanitizer**: Recursive sanitization of sensitive dictionary keys and regex-based redaction of personal access tokens, OAuth tokens, Bearer headers, private keys, and passwords (ackend/orchestrator/core/sanitizer.py).
-* **Typed Agent Results**: Extended AgentResult contract with investigation_id, execution_id, source, data, warnings, errors, and collected_at (100% backward compatible with Phase 10).
-* **Orchestrator Stage Integration**: CollectEvidenceStage dynamically executes all injected operational agents, propagating sanitized data and recording typed results into InvestigationContext (ackend/orchestrator/stages/investigation.py).
-
-### IMPLEMENTED (Phase 12 — Evidence Engine)
-* **Multi-modal normalization**: Converts GitHub repository/commit/PR/issue/workflow/file results, Docker container/state/log results, monitoring health/metric/alert results, and generic agent payloads into typed evidence records.
-* **Data integrity and safety**: Normalizes timestamps to UTC, records timestamp provenance, sanitizes secrets in payload and display text, validates identifiers and payload size, bounds nested input, and records quality warnings.
-* **Deduplication and summaries**: Applies stable provider identifiers or canonical content hashes and summarizes counts, time bounds, duplicate counts, data-quality failures, and source/type groups.
-* **Timeline and evidence graph**: Produces a stable chronological timeline and explicit shared-identifier / temporal-proximity edges. Correlation links are informational and do not imply causality.
-* **Orchestrator integration**: `CollectEvidenceStage` processes agent results and returns the bounded serialized evidence collection alongside collection summary counts.
-* **Resource guardrails**: Configurable limits cap agent/evidence count, per-item and aggregate payload bytes, field length, source records, timeline entries, graph edges, and correlation windows.
-
-### IMPLEMENTED (Phase 13 — Nemotron / Nebius Reasoning)
-* **Provider abstraction and Nebius adapter**: Async provider contract and HTTPS-only OpenAI-compatible Nemotron client; API key remains server-side.
-* **Structured reasoning contract**: Sanitized evidence-set input, strict Pydantic output validation, evidence-ID validation, and explicit boundary against root-cause claims and fix generation.
-* **Token, cost, and budget controls**: Input/output limits, configurable price-based estimates, pre-request worst-case reservations, a hard `$25` maximum, and bounded retry/timeouts.
-* **Cache and observability**: Bounded TTL cache plus safe request, usage, duration, and estimated cost metadata.
-* **Orchestrator integration**: `AnalyzeStage` receives the collected evidence and calls the provider only when an `LLMService` is explicitly injected. The default workflow remains offline.
-* **Deterministic tests**: All LLM service tests use fake providers or `httpx.MockTransport`; no automated test makes live model calls.
-
-### IMPLEMENTED (Phase 14 — Knowledge Search / Tavily)
-* **Provider abstraction and Tavily adapter**: Async provider protocol, deterministic fake provider, HTTPS Tavily client, explicit secret handling, bounded response streaming, and no automatic result-URL fetching.
-* **Query and result safety**: Sanitized, bounded query construction; HTTPS/public-host and optional domain allow-list validation; response and field-size limits; retry, timeout, concurrency, usage, and cache controls.
-* **Evidence integration and provenance**: Normalizes external references through the Phase 12 Evidence Engine and stores URL, provider, query, retrieval time, and untrusted-source classification.
-* **Orchestrator integration**: Optional injected search runs before the optional Phase 13 reasoning call. Search failures preserve existing evidence and are governed by the workflow failure policy.
-* **Deterministic tests**: Fake providers and HTTPX mock transports; no live search/model calls in automated tests, imports, or startup.
-
-### IMPLEMENTED (Phase 15 — Root Cause Analysis Engine)
-* **Evidence-referenced analysis**: Strict typed RCA contracts distinguish observed facts, untrusted external knowledge, and hypotheses; candidate claims must cite actual Phase 12 evidence IDs.
-* **Hypothesis evaluation**: Ranks candidate causes with deterministic qualitative confidence based on unique observed references, independent sources, and contradictions. Only a uniquely strongest high-confidence hypothesis can be selected; ties and weak evidence remain unselected.
-* **Temporal and external context**: Reuses Phase 12 timeline/correlation relationships and Phase 14 source URLs. It treats temporal order as correlation rather than proof and external documentation as interpretation rather than incident fact.
-* **LLM safety and integration**: Injected RCA service uses the Phase 13 provider, global budget guard, bounded tokens/retries, and TTL cache. Prompt data is delimited as untrusted; schema, evidence references, and relationship references are validated before output.
-* **Analysis-only behavior**: The Diagnose stage exposes the structured result in orchestration output. There is no RCA database migration or public endpoint, and Phase 15 generates no fixes or production actions.
-* **Deterministic tests**: Phase 15 coverage uses fake LLM providers; normal tests make no Nebius/Tavily calls.
-
-### IMPLEMENTED (Phase 16.1 — Chat History)
-* **Conversation persistence**: Incident-scoped conversations and chronological user/assistant messages, with optional investigation linkage.
-* **API and access boundaries**: Bounded pagination and size validation; project ownership, incident membership, investigation linkage, and project RLS are enforced.
-* **No model dependency**: History persistence does not call an LLM or generate assistant messages.
-
-### IMPLEMENTED (Phase 17 — Sandbox Verification, opt-in)
-* **VERIFY stage**: Reuses the canonical Phase 10 stage and consumes only a validated Phase 16 `FixProposal`; verification commands and a trusted source workspace must be explicitly injected.
-* **Providers and controls**: Deterministic fake provider plus a digest-pinned Docker provider using no network, no host mounts, no inherited host environment, non-root identity, read-only root filesystem, resource limits, bounded output, and cleanup.
-* **Result and limits**: Typed PASS/FAIL/INCONCLUSIVE/TIMEOUT/CANCELLED/UNSAFE/SETUP_FAILED results are available in orchestration output. No provider is enabled by default; Docker was not run as part of implementation tests.
-
-### IMPLEMENTED (Phase 18 — Human Approval & Audit)
-* **Human-only decision workflow**: Authenticated project owners and platform administrators can request, review, approve, reject, or cancel eligible proposals. Approval requires a matching Phase 17 PASS result; no API accepts client-supplied actor identity or verification status.
-* **Bound artifacts and lifecycle**: Immutable RCA/proposal/verification snapshots and fingerprints bind each request to its review data. Requests expire after 24 hours; stale artifacts, failed verification, and replayed terminal decisions are rejected.
-* **Audit and database controls**: PostgreSQL RLS, append-only audit triggers, artifact immutability, state-transition guards, and a partial unique index protect the workflow. Migration `0007_human_approval_audit` follows chat-history migration `0006_chat_history`.
-* **No production remediation**: Approval does not apply patches, write to GitHub, deploy, roll back, or resolve incidents. Production resolution is not implemented.
-
-### IMPLEMENTED (Phase 18 — Human Approval & Audit)
-* **Human-only decision workflow**: Authenticated project owners and platform administrators can request, review, approve, reject, or cancel eligible proposals. Approval requires a matching Phase 17 PASS result; no API accepts client-supplied actor identity or verification status.
-* **Bound artifacts and lifecycle**: Immutable RCA/proposal/verification snapshots and fingerprints bind each request to its review data. Requests expire after 24 hours; stale artifacts, failed verification, and replayed terminal decisions are rejected.
-* **Audit and database controls**: PostgreSQL RLS, append-only audit triggers, artifact immutability, state-transition guards, and a partial unique index protect the workflow. Migration `0007_human_approval_audit` follows chat-history migration `0006_chat_history`.
-* **No production remediation**: Approval does not apply patches, write to GitHub, deploy, roll back, or resolve incidents. Production resolution is not implemented.
-
----
-
-# 24. Real Docker Sandbox Verification (Phase 17)
-
-DEVDOC provides isolated sandbox execution using Docker for real, bounded patch verification without host compromise:
-* **Rootfs Read-Only & Tmpfs Workspaces**: Containers execute with `--read-only` root filesystems, `--user 65532:65532`, `--cap-drop ALL`, and `--security-opt no-new-privileges:true`. Writable `/workspace` is mounted as isolated tmpfs.
-* **In-Memory Tar Extraction**: Workspace source files are streamed via tar stdin into the container (`tar -C /workspace -xf -`), preserving rootfs immutability.
-* **Network Isolation**: All sandboxes run with `--network none` preventing data exfiltration or external network calls.
-* **Pinned Base Images**: Only sha256-pinned images are accepted (e.g. `python:3.13-alpine@sha256:bf12ecc0bea3f171d55145dd02c78b5eeb09f30ee2ac9cc2b4c9e4e8f5e30741`).
-* **Command Allowlist**: Execution is strictly restricted to allowlisted interpreters and test runners (`pytest`, `python`, `python3`, `ruff`, `mypy`, `go`, `cargo`, `make`), blocking shell chaining, subshells, and command injection.
-* **Truthful Status Lifecycle**: Passes only produce fingerprinted approval artifacts upon verified clean exit (exit code 0). Non-zero exits, timeouts, or setup errors remain unverified and cannot be approved.
-
----
-
-# 25. Security Hardening & Secret Protection (Phase 19)
-
-* **Secret Redaction in Structured Logging**: `SecretRedactingFilter` automatically scrubs Bearer tokens, database connection passwords, API keys, and auth secrets from log streams before writing to stdout.
-* **SSRF Prevention**: Monitoring and external evidence resolvers block private IPv4/IPv6 ranges, link-local addresses, and cloud provider metadata services (`169.254.169.254`, `metadata.google.internal`), rejecting non-HTTP schemes (`file://`, `gopher://`).
-* **CORS & Trusted Hosts**: CORS origins are strictly configured. Production mode rejects wildcard origins combined with credentials and mandates explicit `TRUSTED_HOSTS`.
-* **Security Headers**: API responses include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and `Cache-Control: no-store`.
-* **Exception Masking**: 500 error responses return sanitized error codes and messages without exposing internal stack traces, queries, or database credentials.
-* **External Security Controls**: Cloud WAF, DDoS mitigation (Cloudflare/AWS Shield), and mutual TLS (mTLS) are infrastructure-layer dependencies documented for production deployment.
-
----
-
-# 26. Observability, Metrics & Telemetry (Phase 21)
-
-### Prometheus Metrics Endpoint (`/metrics`)
-DEVDOC exposes a bounded-cardinality Prometheus metrics endpoint for cluster scraping:
-* `http_requests_total{method, path_template, status_class}`: HTTP request counter using parameterized route templates (no high-cardinality IDs).
-* `http_request_duration_seconds`: Request duration summary.
-* `devdoc_investigation_runs_total{status}`: Investigation runs by outcome.
-* `devdoc_sandbox_verifications_total{provider, status}`: Sandbox verification outcomes.
-* `devdoc_llm_requests_total{provider, outcome}`: LLM reasoning requests.
-* `devdoc_llm_tokens_total{provider, type}`: Token consumption (input/output).
-* `devdoc_llm_cost_usd_total{provider}`: Cumulative LLM expenditure in USD.
-* `devdoc_llm_budget_rejections_total`: Requests blocked by budget cap.
-* `devdoc_approvals_total{status}`: Human approval decisions.
-
-### OpenTelemetry Tracing
-* Standard W3C 32-character trace IDs and 16-character span IDs.
-* Safe no-op / local development fallback when `OPENTELEMETRY_ENABLED=false` or collector unconfigured.
-* Sensitive attribute scrubbing (redacts tokens, passwords, cookies).
-
----
-
-# 27. Load Testing & Concurrency Verification (Phase 22)
-
-Locust load tests reside at `tests/load/locustfile.py`.
-
-### Running Locust Locally
-```bash
-cd backend
-locust -f tests/load/locustfile.py --headless -u 10 -r 5 --run-time 15s --host http://127.0.0.1:8000
-```
-
-### Empirical Benchmark Results
-* **Virtual Users**: 10 users, spawn rate 5/s
-* **Duration**: 15 seconds
-* **Total Requests**: 397 requests
-* **Failures**: 0 (0.00% error rate)
-* **Throughput**: 28.45 requests/sec
-* **Latency Profile**:
-  - p50: 60 ms
-  - p66: 71 ms
-  - p75: 86 ms
-  - p90: 530 ms
-  - p95: 890 ms
-  - p99: 2400 ms
-  - Max: 3500 ms
-* **Zero LLM Charges**: Load scenarios target read/auth/health endpoints without triggering model tokens.
-* **Concurrency Correctness**: Verified that simultaneous duplicate `POST /run` requests receive 409 Conflict, and simultaneous LLM reservations cannot breach the `$LLM_BUDGET_USD` cap.
-
----
-
-# 28. Production Docker & CI/CD (Phase 23)
-
-### Production Dockerfile
-* Base image: `python:3.13-slim`
-* User: `appuser` (UID 1000, non-root)
-* Healthcheck: `curl -f http://localhost:8000/api/v1/health`
-* Build and run:
-```bash
-docker build -t devdoc-backend:latest backend/
-docker run -d --name devdoc-backend -p 8000:8000 -e ENVIRONMENT=development devdoc-backend:latest
-```
-
-### GitHub Actions CI/CD (`.github/workflows/backend-ci.yml`)
-* Automated workflow on `push` and `pull_request` to `main`, `master`, `features`.
-* Stages:
-  1. Python 3.13 dependency install and caching
-  2. Ruff lint verification
-  3. Alembic migration consistency validation
-  4. Full Pytest test suite execution
-  5. Production Docker image build check
-
----
-
-# 29. Production Architecture: Read Replicas, Redis, Multi-Region (Phase 24)
-
-* **Database Read/Write Routing**:
-  - `get_db()` and `get_authenticated_db()` strictly use the primary PostgreSQL instance for all writes and transactions.
-  - `get_read_only_db()` directs read-only queries to `DATABASE_REPLICA_URL` when configured; automatically falls back to primary when unconfigured.
-* **Redis Distributed Rate Limiting**:
-  - Distributed token bucket using atomic Lua script.
-  - Observable, safe in-memory fallback when Redis is unreachable or unconfigured.
-* **Multi-Region Resilience Design**:
-  - Documented active-passive failover with Supabase replication.
-  - RPO: < 1 minute (asynchronous WAL streaming).
-  - RTO: < 5 minutes (DNS / connection string failover).
-  - Production multi-region infrastructure is labeled DEFERRED until live multi-region cloud resources are provisioned.
-
----
-
-# 30. Full Backend Phase 1–26 Status Matrix
-
-| Phase | Description | Status | Verification & Evidence | Next Action |
-|:-----:|:------------|:------:|:------------------------|:------------|
-| 1 | FastAPI Foundation | **COMPLETE** | `app/main.py`, lifespan, routes, 482 tests pass | Ready |
-| 2 | PostgreSQL & SQLAlchemy | **COMPLETE** | Migration head `0008`, models, asyncpg, aiosqlite | Ready |
-| 3 | Domain Models & Schemas | **COMPLETE** | Pydantic v2 schemas across all entities | Ready |
-| 4 | Supabase Row Level Security | **COMPLETE** | Migrations 0002, 0004, 0008; 14 live PG tests defined | Run on live PG |
-| 5 | Authentication & JWT | **COMPLETE** | Supabase JWT HS256, active-user checks | Ready |
-| 6 | User & Project REST APIs | **COMPLETE** | Full CRUD, slug validation, tenant isolation | Ready |
-| 7 | GitHub Integration | **COMPLETE** | OAuth callback, HMAC webhook, Octokit client | Ready |
-| 8 | Incident Management APIs | **COMPLETE** | Incident lifecycle, state transitions | Ready |
-| 9 | Investigation APIs | **COMPLETE** | Status transitions, chat persistence | Ready |
-| 10 | Investigation Orchestrator | **COMPLETE** | Canonical 8-stage pipeline, operational factory | Ready |
-| 11 | Operational Diagnostic Agents | **COMPLETE** | GitHub, Docker, Monitoring agents | Ready |
-| 12 | Evidence Collection Engine | **COMPLETE** | Normalized multi-modal evidence store | Ready |
-| 13 | Nebius & NVIDIA LLM Reasoning | **COMPLETE** | Nemotron-3.5-Lightning verified live, spend guard | Ready |
-| 14 | External Knowledge Search | **COMPLETE** | Tavily client, domain allowlists, caching | Ready |
-| 15 | Root Cause Analysis Engine | **COMPLETE** | Structured hypotheses, confidence ranking | Ready |
-| 16 | Fix Proposal Generator | **COMPLETE** | Unified diff patches, risk assessment, rollback plan | Ready |
-| 17 | Real Docker Sandbox | **COMPLETE** | Docker tmpfs, tar stream, pinned Alpine/Python verified | Production ready |
-| 18 | Human Approval & Audit | **COMPLETE** | Fingerprinted approval artifacts, immutable audit logs | Production ready |
-| 19 | Security Hardening | **COMPLETE** | SSRF checks, SecretRedactingFilter, security headers | Infrastructure WAF external |
-| 20 | API Rate Limiting | **COMPLETE** | Redis token bucket with in-memory fallback | Ready |
-| 21 | Observability & Telemetry | **COMPLETE** | Prometheus `/metrics`, OpenTelemetry tracing | Collector optional |
-| 22 | Load & Concurrency Testing | **COMPLETE** | Locust scenario (28.4 req/s, 0% err), concurrency tests | Production ready |
-| 23 | Production Docker & CI/CD | **COMPLETE** | Non-root Dockerfile verified, GitHub Actions workflow | CI ready |
-| 24 | Read Replicas & Resilience | **COMPLETE** (Scope) | Primary/replica routing, Redis fallback, multi-region design | Multi-region cloud DEFERRED |
-| 25 | Regression Verification | **COMPLETE** | 482 passed, 14 skipped, 0 failures | Ready for frontend |
-| 26 | Documentation & Status | **COMPLETE** | Complete README, runbooks, .env.example | Frontend development start |
-
----
-
-# 31. Hackathon Submission & Demo Runner
+# 21. Hackathon Submission & Demo Runner
 
 ### Nebius x NVIDIA Hackathon Highlights
 - **Inference Provider**: Nebius Token Factory (`https://api.studio.nebius.ai/v1`)
@@ -1174,6 +861,6 @@ Authorization: Bearer <supabase_jwt>
 
 ---
 
-# 32. License
+# 22. License
 
 Proprietary / Internal project license. All rights reserved. DEVDOC Team.

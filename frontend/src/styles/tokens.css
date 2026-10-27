@@ -6,26 +6,26 @@
 
 :root {
   /* Color Palette — Core Surfaces */
-  --devdoc-canvas: #0a1020;
-  --devdoc-surface: #121b2e;
-  --devdoc-surface-hover: #162238;
-  --devdoc-surface-raised: #18253d;
-  --devdoc-surface-sunken: #0d1526;
+  --devdoc-canvas: #101214;
+  --devdoc-surface: #1a1d20;
+  --devdoc-surface-hover: #25292d;
+  --devdoc-surface-raised: #2d3237;
+  --devdoc-surface-sunken: #151719;
 
   /* Borders & Dividers */
-  --devdoc-border: #243049;
-  --devdoc-border-subtle: #1a253a;
-  --devdoc-border-accent: rgba(56, 189, 248, 0.35);
+  --devdoc-border: #3b4146;
+  --devdoc-border-subtle: #292e32;
+  --devdoc-border-accent: rgba(174, 184, 192, 0.34);
 
   /* Typography Colors */
-  --devdoc-fg: #e6ecf5;
-  --devdoc-fg-muted: #93a1b8;
-  --devdoc-fg-subtle: #64748b;
+  --devdoc-fg: #e9ecef;
+  --devdoc-fg-muted: #b3bbc2;
+  --devdoc-fg-subtle: #8c959d;
 
   /* Brand Accents */
-  --devdoc-accent: #38bdf8;
-  --devdoc-on-accent: #04111c;
-  --devdoc-accent-glow: rgba(56, 189, 248, 0.14);
+  --devdoc-accent: #aeb8c0;
+  --devdoc-on-accent: #141719;
+  --devdoc-accent-glow: rgba(174, 184, 192, 0.12);
   --devdoc-accent-amber: #f5a524;
 
   /* Status Colors */
@@ -42,8 +42,8 @@
   --devdoc-status-bad-border: rgba(248, 113, 113, 0.4);
 
   /* Typography Stacks */
-  --font-display: "Space Grotesk", system-ui, -apple-system, sans-serif;
-  --font-body: "Geist", system-ui, -apple-system, sans-serif;
+  --font-display: "Source Sans 3", system-ui, -apple-system, sans-serif;
+  --font-body: "Source Sans 3", system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
 
   /* Spacing Scale */
@@ -71,7 +71,7 @@
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
-  --shadow-glow: 0 0 15px rgba(56, 189, 248, 0.25);
+  --shadow-glow: 0 0 15px rgba(174, 184, 192, 0.18);
 
   /* Dimensions */
   --sidebar-width: 240px;

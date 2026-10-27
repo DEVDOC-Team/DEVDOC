@@ -32,7 +32,7 @@
 
 .btn-primary:hover:not(:disabled) {
   filter: brightness(1.1);
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+  box-shadow: 0 0 12px rgba(174, 184, 192, 0.35);
 }
 
 .btn-secondary {
@@ -125,8 +125,8 @@
 
 .badge-cyan {
   color: var(--devdoc-accent);
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(174, 184, 192, 0.45);
+  background: rgba(174, 184, 192, 0.08);
 }
 
 .badge-warn {
@@ -137,8 +137,8 @@
 
 .badge-accent {
   color: var(--devdoc-accent);
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(174, 184, 192, 0.45);
+  background: rgba(174, 184, 192, 0.12);
 }
 
 /* Panel / Card */
@@ -147,7 +147,8 @@
   border: 1px solid var(--devdoc-border);
   border-radius: var(--radius-md);
   overflow: hidden;
-  transition: border-color var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base);
 }
 
 .panel-sunken {
@@ -156,7 +157,9 @@
 }
 
 .panel:hover {
-  border-color: rgba(56, 189, 248, 0.25);
+  border-color: var(--devdoc-border-accent);
+  box-shadow: var(--shadow-md), var(--shadow-glow);
+  transform: translateY(-2px);
 }
 
 .panel-header {
@@ -203,6 +206,14 @@
   padding: 8px 6px;
   overflow-x: auto;
   gap: 2px;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.phase-rail:hover {
+  border-color: var(--devdoc-border-accent);
+  box-shadow: var(--shadow-md), var(--shadow-glow);
+  transform: translateY(-2px);
 }
 
 .phase-step {

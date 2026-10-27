@@ -836,24 +836,24 @@ export const InvestigationConsoleView: React.FC<InvestigationConsoleViewProps> =
                       <text x="292" y="6" textAnchor="end" fontSize="7" fill="#f87171" fontFamily="ui-monospace, Menlo, monospace">
                         max 200
                       </text>
-                      <rect x="14" y="45" width="42" height="20" fill="#38bdf8" />
-                      <rect x="72" y="38" width="42" height="27" fill="#38bdf8" />
+                      <rect x="14" y="45" width="42" height="20" fill="#aeb8c0" />
+                      <rect x="72" y="38" width="42" height="27" fill="#aeb8c0" />
                       <rect x="130" y="26" width="42" height="39" fill="#f5a524" />
                       <rect x="188" y="14" width="42" height="51" fill="#f5a524" />
                       <rect x="246" y="3" width="42" height="62" fill="#f87171" />
-                      <text x="35" y="72" textAnchor="middle" fontSize="7" fill="#93a1b8" fontFamily="ui-monospace, Menlo, monospace">
+                      <text x="35" y="72" textAnchor="middle" fontSize="7" fill="#b3bbc2" fontFamily="ui-monospace, Menlo, monospace">
                         13:58
                       </text>
-                      <text x="93" y="72" textAnchor="middle" fontSize="7" fill="#93a1b8" fontFamily="ui-monospace, Menlo, monospace">
+                      <text x="93" y="72" textAnchor="middle" fontSize="7" fill="#b3bbc2" fontFamily="ui-monospace, Menlo, monospace">
                         13:59
                       </text>
-                      <text x="151" y="72" textAnchor="middle" fontSize="7" fill="#93a1b8" fontFamily="ui-monospace, Menlo, monospace">
+                      <text x="151" y="72" textAnchor="middle" fontSize="7" fill="#b3bbc2" fontFamily="ui-monospace, Menlo, monospace">
                         14:00
                       </text>
-                      <text x="209" y="72" textAnchor="middle" fontSize="7" fill="#93a1b8" fontFamily="ui-monospace, Menlo, monospace">
+                      <text x="209" y="72" textAnchor="middle" fontSize="7" fill="#b3bbc2" fontFamily="ui-monospace, Menlo, monospace">
                         14:01
                       </text>
-                      <text x="267" y="72" textAnchor="middle" fontSize="7" fill="#93a1b8" fontFamily="ui-monospace, Menlo, monospace">
+                      <text x="267" y="72" textAnchor="middle" fontSize="7" fill="#b3bbc2" fontFamily="ui-monospace, Menlo, monospace">
                         14:02
                       </text>
                     </svg>
@@ -1459,7 +1459,7 @@ export const InvestigationConsoleView: React.FC<InvestigationConsoleViewProps> =
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(10, 16, 32, 0.85)',
+            background: 'rgba(16, 18, 20, 0.85)',
             backdropFilter: 'blur(6px)',
             display: 'grid',
             placeItems: 'center',
