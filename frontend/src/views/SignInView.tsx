@@ -3,32 +3,53 @@ import { useAuth } from '../context/AuthContext';
 import { Panel } from '../components/ui/Panel';
 import { Button } from '../components/ui/Button';
 import { StatusPulse } from '../components/ui/StatusPulse';
-import { KeyRound, ShieldAlert, ArrowRight, Lock } from 'lucide-react';
+import { KeyRound, ShieldAlert, ArrowRight, Lock, Mail, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface SignInViewProps {
   onSuccess?: () => void;
 }
 
 export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
-  const { signInWithToken, status, error, clearError } = useAuth();
-  const [tokenInput, setTokenInput] = useState('');
-  const [persistToken, setPersistToken] = useState(true);
+  const { signInWithCredentials, signInWithToken, status, error, clearError } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [persistSession, setPersistSession] = useState(true);
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
+
+  // Advanced direct token mode
+  const [showDirectToken, setShowDirectToken] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearError();
     setValidationMsg(null);
 
-    const cleanToken = tokenInput.trim();
-    if (!cleanToken) {
-      setValidationMsg('Please provide a valid Supabase JWT Bearer token.');
-      return;
-    }
+    if (showDirectToken) {
+      const cleanToken = tokenInput.trim();
+      if (!cleanToken) {
+        setValidationMsg('Please provide a valid Supabase JWT Bearer token.');
+        return;
+      }
+      const res = await signInWithToken(cleanToken, persistSession);
+      if (res.success && onSuccess) {
+        onSuccess();
+      }
+    } else {
+      const cleanEmail = email.trim();
+      if (!cleanEmail) {
+        setValidationMsg('Please enter your email address.');
+        return;
+      }
+      if (!password) {
+        setValidationMsg('Please enter your password.');
+        return;
+      }
 
-    const res = await signInWithToken(cleanToken, persistToken);
-    if (res.success && onSuccess) {
-      onSuccess();
+      const res = await signInWithCredentials(cleanEmail, password, persistSession);
+      if (res.success && onSuccess) {
+        onSuccess();
+      }
     }
   };
 
@@ -71,19 +92,19 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
               letterSpacing: '0.02em',
             }}
           >
-            Authenticate with DEVDOC
+            Sign In to DEVDOC
           </h1>
           <p style={{ fontSize: '12px', color: 'var(--devdoc-fg-muted)', marginTop: '4px' }}>
-            Enter your cryptographically signed Supabase access token to access autonomous DevOps operations.
+            Sign in with your registered account to manage projects, connect GitHub repositories, and run AI investigations.
           </p>
         </div>
 
         <Panel
-          title="Session Authorization"
+          title="Account Sign In"
           meta={
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <StatusPulse status="ok" />
-              <span style={{ fontSize: '10px', color: 'var(--devdoc-fg-muted)' }}>HS256 Verified</span>
+              <span style={{ fontSize: '10px', color: 'var(--devdoc-fg-muted)' }}>Supabase Auth (ES256 / JWKS)</span>
             </div>
           }
         >
@@ -104,7 +125,7 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
             >
               <ShieldAlert size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
               <div>
-                <strong>Authentication Rejected:</strong>
+                <strong>Authentication Failed:</strong>
                 <div style={{ marginTop: '2px', wordBreak: 'break-word' }}>
                   {error || validationMsg}
                 </div>
@@ -113,45 +134,153 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
           )}
 
           <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: '14px' }}>
-              <label
-                htmlFor="auth-token-input"
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  fontFamily: 'var(--font-display)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
-                  color: 'var(--devdoc-fg-muted)',
-                  marginBottom: '6px',
-                }}
-              >
-                Supabase Bearer Token (JWT)
-              </label>
-              <textarea
-                id="auth-token-input"
-                rows={4}
-                value={tokenInput}
-                onChange={(e) => {
-                  setTokenInput(e.target.value);
-                  if (validationMsg) setValidationMsg(null);
-                }}
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOi..."
-                style={{
-                  width: '100%',
-                  background: 'var(--devdoc-surface-sunken)',
-                  border: '1px solid var(--devdoc-border)',
-                  color: 'var(--devdoc-fg)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '8px 10px',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '11px',
-                  lineHeight: '1.4',
-                  resize: 'vertical',
-                }}
-                disabled={isLoading}
-              />
-            </div>
+            {!showDirectToken ? (
+              <>
+                <div style={{ marginBottom: '14px' }}>
+                  <label
+                    htmlFor="auth-email-input"
+                    style={{
+                      display: 'block',
+                      fontSize: '11px',
+                      fontFamily: 'var(--font-display)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      color: 'var(--devdoc-fg-muted)',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    Email Address
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      id="auth-email-input"
+                      type="email"
+                      required
+                      autoComplete="email"
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (validationMsg) setValidationMsg(null);
+                      }}
+                      placeholder="engineer@company.com"
+                      style={{
+                        width: '100%',
+                        background: 'var(--devdoc-surface-sunken)',
+                        border: '1px solid var(--devdoc-border)',
+                        color: 'var(--devdoc-fg)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '9px 12px 9px 34px',
+                        fontSize: '13px',
+                      }}
+                      disabled={isLoading}
+                    />
+                    <Mail
+                      size={15}
+                      style={{
+                        position: 'absolute',
+                        left: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: 'var(--devdoc-fg-dim)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label
+                    htmlFor="auth-password-input"
+                    style={{
+                      display: 'block',
+                      fontSize: '11px',
+                      fontFamily: 'var(--font-display)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      color: 'var(--devdoc-fg-muted)',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    Password
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      id="auth-password-input"
+                      type="password"
+                      required
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (validationMsg) setValidationMsg(null);
+                      }}
+                      placeholder="••••••••"
+                      style={{
+                        width: '100%',
+                        background: 'var(--devdoc-surface-sunken)',
+                        border: '1px solid var(--devdoc-border)',
+                        color: 'var(--devdoc-fg)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '9px 12px 9px 34px',
+                        fontSize: '13px',
+                      }}
+                      disabled={isLoading}
+                    />
+                    <Lock
+                      size={15}
+                      style={{
+                        position: 'absolute',
+                        left: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: 'var(--devdoc-fg-dim)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div style={{ marginBottom: '14px' }}>
+                <label
+                  htmlFor="auth-token-input"
+                  style={{
+                    display: 'block',
+                    fontSize: '11px',
+                    fontFamily: 'var(--font-display)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    color: 'var(--devdoc-fg-muted)',
+                    marginBottom: '6px',
+                  }}
+                >
+                  Direct Supabase JWT Bearer Token
+                </label>
+                <textarea
+                  id="auth-token-input"
+                  rows={4}
+                  value={tokenInput}
+                  onChange={(e) => {
+                    setTokenInput(e.target.value);
+                    if (validationMsg) setValidationMsg(null);
+                  }}
+                  placeholder="eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOi..."
+                  style={{
+                    width: '100%',
+                    background: 'var(--devdoc-surface-sunken)',
+                    border: '1px solid var(--devdoc-border)',
+                    color: 'var(--devdoc-fg)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 10px',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '11px',
+                    lineHeight: '1.4',
+                    resize: 'vertical',
+                  }}
+                  disabled={isLoading}
+                />
+              </div>
+            )}
 
             <div
               style={{
@@ -166,22 +295,54 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
-                  checked={persistToken}
-                  onChange={(e) => setPersistToken(e.target.checked)}
+                  checked={persistSession}
+                  onChange={(e) => setPersistSession(e.target.checked)}
                   style={{ accentColor: 'var(--devdoc-accent)' }}
                 />
                 Remember session on this device
               </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDirectToken(!showDirectToken);
+                  setValidationMsg(null);
+                  clearError();
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--devdoc-accent)',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: 0,
+                }}
+              >
+                {showDirectToken ? (
+                  <>
+                    <ChevronDown size={13} />
+                    Email / Password
+                  </>
+                ) : (
+                  <>
+                    <ChevronRight size={13} />
+                    Direct Token
+                  </>
+                )}
+              </button>
             </div>
 
             <Button
               type="submit"
               variant="primary"
               style={{ width: '100%', padding: '10px' }}
-              disabled={isLoading || !tokenInput.trim()}
+              disabled={isLoading || (!showDirectToken && (!email.trim() || !password)) || (showDirectToken && !tokenInput.trim())}
               icon={<ArrowRight size={14} />}
             >
-              {isLoading ? 'Verifying Credentials...' : 'Sign In to Platform'}
+              {isLoading ? 'Authenticating with Supabase...' : 'Sign In to Platform'}
             </Button>
           </form>
 
@@ -199,7 +360,7 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
               <Lock size={12} />
               <span style={{ fontWeight: 600 }}>Security Protocol</span>
             </div>
-            Tokens are passed via <code>Authorization: Bearer</code> to verify <code>sub</code> claim against PostgreSQL RLS. Credentials are never logged or stored insecurely.
+            Sessions are validated by the FastAPI backend using Supabase Auth public keys via ES256/JWKS. User identifiers enforce PostgreSQL Row Level Security (RLS) on all workspace operations.
           </div>
         </Panel>
       </div>

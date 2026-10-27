@@ -127,10 +127,25 @@ class Settings(BaseSettings):
 
     # JWT verification settings
     supabase_jwt_secret: SecretStr = Field(default=SecretStr(""))
-    supabase_jwt_algorithm: str = Field(default="HS256")
+    supabase_jwt_algorithm: str = Field(default="ES256")
     supabase_jwt_audience: str = Field(default="authenticated")
     supabase_jwt_issuer: str | None = Field(default=None)
     supabase_jwks_url: str | None = Field(default=None)
+
+    @field_validator("supabase_jwt_issuer", mode="before")
+    @classmethod
+    def normalize_jwt_issuer(cls, value: Any) -> str | None:
+        if isinstance(value, str):
+            trimmed = value.strip().rstrip("/")
+            return trimmed if trimmed else None
+        return value
+
+    @field_validator("supabase_jwt_algorithm", mode="before")
+    @classmethod
+    def normalize_jwt_algorithm(cls, value: Any) -> str:
+        if isinstance(value, str) and value.strip():
+            return value.strip().upper()
+        return "ES256"
 
     # ------------------------------------------------------------------ #
     # GitHub Integration (Phase 7)
@@ -163,6 +178,17 @@ class Settings(BaseSettings):
     llm_output_cost_per_million_usd: float = Field(default=0.0, ge=0)
     llm_cache_ttl_seconds: int = Field(default=900, ge=0, le=86_400)
     llm_cache_max_entries: int = Field(default=128, ge=0, le=10_000)
+
+    @field_validator("nebius_model", mode="before")
+    @classmethod
+    def normalize_nebius_model(cls, value: Any) -> str:
+        if isinstance(value, str):
+            val = value.strip()
+            if "llama-3.1-nemotron-70b" in val.lower() or "nemotron-70b" in val.lower():
+                return "nvidia/Nemotron-3_5-Lightning"
+            return val if val else "nvidia/Nemotron-3_5-Lightning"
+        return "nvidia/Nemotron-3_5-Lightning"
+
 
     # ------------------------------------------------------------------ #
     # External knowledge search — Phase 14 (disabled unless injected)

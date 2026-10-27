@@ -72,10 +72,17 @@ class NebiusNemotronProvider:
             choice = body["choices"][0]
             content = choice["message"]["content"]
             usage = body.get("usage", {})
+            if content is None and choice.get("finish_reason") == "length":
+                raise LLMProviderError(
+                    "Nebius token limit reached during reasoning (max_output_tokens exhausted)"
+                )
             if not isinstance(content, str) or not isinstance(usage, dict):
                 raise TypeError
+        except LLMProviderError:
+            raise
         except (ValueError, KeyError, IndexError, TypeError):
             raise LLMProviderError("Nebius returned an invalid completion response") from None
+
 
         returned_model = body.get("model")
         request_id = body.get("id")

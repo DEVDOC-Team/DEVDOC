@@ -726,14 +726,15 @@ async def test_live_pg_audit_logs_append_only_immutability(pg_conn):
         # Direct client writes cannot forge audit events.
         new_log_id = uuid.uuid4()
         with pytest.raises(asyncpg.PostgresError):
-            await pg_conn.execute(
-                "INSERT INTO public.audit_logs "
-                "(id, actor_id, project_id, action) "
-                "VALUES ($1, $2, $3, 'investigation.started')",
-                new_log_id,
-                user_a_id,
-                proj_a_id,
-            )
+            async with pg_conn.transaction():
+                await pg_conn.execute(
+                    "INSERT INTO public.audit_logs "
+                    "(id, actor_id, project_id, action) "
+                    "VALUES ($1, $2, $3, 'investigation.started')",
+                    new_log_id,
+                    user_a_id,
+                    proj_a_id,
+                )
 
         # User A CANNOT UPDATE audit logs (Immutability guarantee: 0 rows affected)
         res_upd = await pg_conn.execute("UPDATE public.audit_logs SET action = 'tampered' WHERE id = $1", log_id)

@@ -4,10 +4,22 @@ import {
   createProject as apiCreateProject,
   deleteProject as apiDeleteProject,
   getProjectGitHubRepo,
+  attachProjectGitHubRepo as apiAttachProjectGitHubRepo,
+  disconnectProjectGitHubRepo as apiDisconnectProjectGitHubRepo,
   listProjects as apiListProjects,
   updateProject as apiUpdateProject,
 } from '../api/projects';
-import type { Project, ProjectCreate, ProjectUpdate, RepositoryResponse } from '../api/types';
+import {
+  getGitHubConnection as apiGetGitHubConnection,
+  disconnectGitHub as apiDisconnectGitHub,
+} from '../api/github';
+import type {
+  Project,
+  ProjectCreate,
+  ProjectUpdate,
+  RepositoryResponse,
+  GitHubConnectionResponse,
+} from '../api/types';
 import { ApiError } from '../api/client';
 
 export const SELECTED_PROJECT_KEY = 'devdoc_selected_project_id';
@@ -17,10 +29,16 @@ export interface ProjectContextValue {
   selectedProject: Project | null;
   selectedProjectId: string | null;
   connectedRepo: RepositoryResponse | null;
+  githubConnection: GitHubConnectionResponse | null;
   loading: boolean;
   repoLoading: boolean;
+  githubConnectionLoading: boolean;
   error: string | null;
   refreshProjects: () => Promise<void>;
+  refreshGitHubConnection: () => Promise<void>;
+  disconnectUserGitHub: () => Promise<void>;
+  attachRepoToProject: (fullName: string) => Promise<RepositoryResponse>;
+  disconnectRepoFromProject: () => Promise<void>;
   selectProject: (id: string) => void;
   createProject: (data: ProjectCreate) => Promise<Project>;
   updateProject: (id: string, data: ProjectUpdate) => Promise<Project>;
@@ -41,11 +59,83 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   });
   const [connectedRepo, setConnectedRepo] = useState<RepositoryResponse | null>(null);
+  const [githubConnection, setGitHubConnection] = useState<GitHubConnectionResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [repoLoading, setRepoLoading] = useState<boolean>(false);
+  const [githubConnectionLoading, setGithubConnectionLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const clearError = useCallback(() => setError(null), []);
+
+  const refreshGitHubConnection = useCallback(async () => {
+    if (status !== 'authenticated') {
+      setGitHubConnection(null);
+      return;
+    }
+
+    setGithubConnectionLoading(true);
+    try {
+      const conn = await apiGetGitHubConnection();
+      setGitHubConnection(conn);
+    } catch {
+      setGitHubConnection({
+        connected: false,
+        github_user_id: null,
+        github_username: null,
+        avatar_url: null,
+        scope: null,
+        created_at: null,
+        updated_at: null,
+      });
+    } finally {
+      setGithubConnectionLoading(false);
+    }
+  }, [status]);
+
+  const disconnectUserGitHub = useCallback(async (): Promise<void> => {
+    setGithubConnectionLoading(true);
+    try {
+      await apiDisconnectGitHub();
+      setGitHubConnection({
+        connected: false,
+        github_user_id: null,
+        github_username: null,
+        avatar_url: null,
+        scope: null,
+        created_at: null,
+        updated_at: null,
+      });
+      setConnectedRepo(null);
+    } catch (err: any) {
+      const msg = err instanceof ApiError ? err.message : err.message || 'Failed to disconnect GitHub';
+      setError(msg);
+      throw err;
+    } finally {
+      setGithubConnectionLoading(false);
+    }
+  }, []);
+
+  // Listen for popup OAuth postMessage completion
+  useEffect(() => {
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'DEVDOC_GITHUB_CONNECTED') {
+        refreshGitHubConnection();
+      }
+    };
+    window.addEventListener('message', handleOAuthMessage);
+    return () => {
+      window.removeEventListener('message', handleOAuthMessage);
+    };
+  }, [refreshGitHubConnection]);
+
+  // Check GitHub connection when auth status changes
+  useEffect(() => {
+    if (status === 'authenticated') {
+      refreshGitHubConnection();
+    } else {
+      setGitHubConnection(null);
+    }
+  }, [status, refreshGitHubConnection]);
 
   const selectProject = useCallback((id: string) => {
     setSelectedProjectId(id);
@@ -228,6 +318,44 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     []
   );
 
+  const attachRepoToProject = useCallback(
+    async (fullName: string): Promise<RepositoryResponse> => {
+      if (!selectedProjectId) {
+        throw new Error('No project selected to attach repository');
+      }
+      setRepoLoading(true);
+      setError(null);
+      try {
+        const repo = await apiAttachProjectGitHubRepo(selectedProjectId, { full_name: fullName });
+        setConnectedRepo(repo);
+        return repo;
+      } catch (err: any) {
+        const msg = err instanceof ApiError ? err.message : err.message || 'Failed to attach repository';
+        setError(msg);
+        throw err;
+      } finally {
+        setRepoLoading(false);
+      }
+    },
+    [selectedProjectId]
+  );
+
+  const disconnectRepoFromProject = useCallback(async (): Promise<void> => {
+    if (!selectedProjectId) return;
+    setRepoLoading(true);
+    setError(null);
+    try {
+      await apiDisconnectProjectGitHubRepo(selectedProjectId);
+      setConnectedRepo(null);
+    } catch (err: any) {
+      const msg = err instanceof ApiError ? err.message : err.message || 'Failed to disconnect repository';
+      setError(msg);
+      throw err;
+    } finally {
+      setRepoLoading(false);
+    }
+  }, [selectedProjectId]);
+
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
 
   return (
@@ -237,10 +365,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         selectedProject,
         selectedProjectId,
         connectedRepo,
+        githubConnection,
         loading,
         repoLoading,
+        githubConnectionLoading,
         error,
         refreshProjects,
+        refreshGitHubConnection,
+        disconnectUserGitHub,
+        attachRepoToProject,
+        disconnectRepoFromProject,
         selectProject,
         createProject,
         updateProject,

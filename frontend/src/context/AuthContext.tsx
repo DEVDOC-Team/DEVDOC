@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { clearStoredToken, getStoredToken, setStoredToken, setOnUnauthorized, ApiError } from '../api/client';
-import { getMyProfile } from '../api/auth';
+import { getMyProfile, loginWithPassword } from '../api/auth';
 import type { User } from '../api/types';
 
 export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated';
@@ -11,6 +11,7 @@ export interface AuthContextValue {
   status: AuthStatus;
   error: string | null;
   isAuthResolving: boolean;
+  signInWithCredentials: (email: string, password: string, persist?: boolean) => Promise<{ success: boolean; error?: string }>;
   signInWithToken: (token: string, persist?: boolean) => Promise<{ success: boolean; error?: string }>;
   signOut: () => void;
   refreshUser: () => Promise<void>;
@@ -93,6 +94,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [refreshUser, signOut]);
 
+  const signInWithCredentials = useCallback(
+    async (email: string, password: string, persist = true): Promise<{ success: boolean; error?: string }> => {
+      const cleanEmail = email.trim();
+      if (!cleanEmail || !password) {
+        const msg = 'Email and password are required';
+        setError(msg);
+        return { success: false, error: msg };
+      }
+
+      setStatus('loading');
+      setError(null);
+
+      try {
+        const loginResp = await loginWithPassword({ email: cleanEmail, password });
+        const accessToken = loginResp.access_token;
+        if (!accessToken) {
+          throw new Error('No access token returned by authentication provider');
+        }
+
+        setStoredToken(accessToken, persist);
+        setToken(accessToken);
+
+        // Fetch verified user profile using the new Bearer token
+        const profile = await getMyProfile({ token: accessToken });
+        setUser(profile);
+        setStatus('authenticated');
+        setError(null);
+        return { success: true };
+      } catch (err: any) {
+        let msg = 'Authentication failed';
+        if (err instanceof ApiError) {
+          if (err.isUnauthorized) {
+            msg = 'Invalid email or password';
+          } else if (err.isForbidden) {
+            msg = 'User account is inactive or restricted';
+          } else {
+            msg = err.message;
+          }
+        } else if (err.message) {
+          msg = err.message;
+        }
+
+        setError(msg);
+        setStatus('unauthenticated');
+        return { success: false, error: msg };
+      }
+    },
+    []
+  );
+
   const signInWithToken = useCallback(
     async (rawToken: string, persist = true): Promise<{ success: boolean; error?: string }> => {
       const cleanToken = rawToken.trim();
@@ -143,6 +194,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status,
         error,
         isAuthResolving,
+        signInWithCredentials,
         signInWithToken,
         signOut,
         refreshUser,

@@ -368,8 +368,9 @@ class EvidenceEngine:
                     description=(
                         f"Evidence items share identifier '{shared_identifier}'"
                         if shared_identifier is not None
-                        else f"Evidence items occurred within {window_seconds} seconds"
+                        else f"Evidence items occurred within {window_seconds} seconds (temporal correlation; does not prove causation)"
                     ),
+
                 )
             )
             return True
