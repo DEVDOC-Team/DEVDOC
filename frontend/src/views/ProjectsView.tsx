@@ -126,7 +126,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
               display: 'inline-flex',
               padding: '16px',
               borderRadius: '50%',
-              background: 'rgba(56, 189, 248, 0.1)',
+              background: 'rgba(174, 184, 192, 0.1)',
               color: 'var(--devdoc-accent)',
               marginBottom: '16px',
             }}
@@ -218,7 +218,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
               display: 'inline-flex',
               padding: '12px',
               borderRadius: '50%',
-              background: 'rgba(56, 189, 248, 0.1)',
+              background: 'rgba(174, 184, 192, 0.1)',
               color: 'var(--devdoc-accent)',
               marginBottom: '12px',
             }}
@@ -285,7 +285,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
                 }
                 style={{
                   border: isSelected ? '1px solid var(--devdoc-accent)' : undefined,
-                  boxShadow: isSelected ? '0 0 16px rgba(56, 189, 248, 0.1)' : undefined,
+                  boxShadow: isSelected ? '0 0 16px rgba(174, 184, 192, 0.1)' : undefined,
                 }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -353,7 +353,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(10, 16, 32, 0.75)',
+            background: 'rgba(16, 18, 20, 0.75)',
             backdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useProjects } from '../context/ProjectContext';
 import { useIncidents } from '../context/IncidentContext';
 import { Panel } from '../components/ui/Panel';
@@ -13,14 +13,44 @@ interface OverviewViewProps {
 }
 
 export const OverviewView: React.FC<OverviewViewProps> = ({ onNavigate, onSelectIncident }) => {
-  const { selectedProject, projects } = useProjects();
+  const {
+    selectedProject,
+    projects,
+    loading: loadingProjects,
+    refreshProjects,
+  } = useProjects();
   const {
     incidents,
     loadingIncidents,
+    loadingInvestigations,
     error,
     refreshIncidents,
+    refreshInvestigations,
     investigations,
   } = useIncidents();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const refreshOverview = async () => {
+    const refreshStartedAt = Date.now();
+    setIsRefreshing(true);
+    try {
+      await Promise.allSettled([
+        refreshProjects(),
+        refreshIncidents(),
+        refreshInvestigations(),
+      ]);
+    } finally {
+      const visibleRefreshDuration = 400;
+      const remainingDuration = visibleRefreshDuration - (Date.now() - refreshStartedAt);
+      if (remainingDuration > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, remainingDuration));
+      }
+      setIsRefreshing(false);
+    }
+  };
+
+  const isRefreshActive =
+    isRefreshing || loadingProjects || loadingIncidents || loadingInvestigations;
 
   const openIncidents = incidents.filter((i) => i.status === 'open' || i.status === 'investigating');
   const criticalIncidents = incidents.filter((i) => i.severity === 'critical' || i.severity === 'high');
@@ -44,9 +74,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ onNavigate, onSelect
           <Button
             variant="secondary"
             size="sm"
-            onClick={refreshIncidents}
-            disabled={loadingIncidents}
-            icon={<RefreshCw size={13} className={loadingIncidents ? 'spin' : ''} />}
+            onClick={refreshOverview}
+            disabled={isRefreshActive}
+            icon={<RefreshCw size={13} className={isRefreshActive ? 'spin' : ''} />}
           >
             Refresh
           </Button>
@@ -109,7 +139,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ onNavigate, onSelect
       {latestIncident && (
         <div
           style={{
-            background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(18, 27, 46, 0.95) 100%)',
+            background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(26, 29, 32, 0.95) 100%)',
             border: '1px solid rgba(239, 68, 68, 0.3)',
             borderRadius: 'var(--radius-md)',
             padding: '16px 20px',

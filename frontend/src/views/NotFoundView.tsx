@@ -11,7 +11,7 @@ export const NotFoundView: React.FC<NotFoundViewProps> = ({ onNavigate }) => {
   return (
     <div className="view-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
       <Panel style={{ maxWidth: '480px', textAlign: 'center', padding: '32px 24px' }}>
-        <div style={{ display: 'inline-flex', padding: '14px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '50%', color: 'var(--devdoc-accent)', marginBottom: '14px' }}>
+        <div style={{ display: 'inline-flex', padding: '14px', background: 'rgba(174, 184, 192, 0.1)', borderRadius: '50%', color: 'var(--devdoc-accent)', marginBottom: '14px' }}>
           <Compass size={32} />
         </div>
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 600, color: 'var(--devdoc-fg)' }}>

@@ -20,7 +20,7 @@ export const CodeDiff: React.FC<CodeDiffProps> = ({ lines, className = "" }) => 
         borderRadius: "var(--radius-sm)",
         padding: "10px 14px",
         overflowX: "auto",
-        color: "#c7d2e4",
+        color: "#e9ecef",
         whiteSpace: "pre",
       }}
       className={className}

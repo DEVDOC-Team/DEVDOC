@@ -54,8 +54,8 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
               width: '44px',
               height: '44px',
               borderRadius: 'var(--radius-md)',
-              background: 'rgba(56, 189, 248, 0.1)',
-              border: '1px solid rgba(56, 189, 248, 0.3)',
+              background: 'rgba(174, 184, 192, 0.1)',
+              border: '1px solid rgba(174, 184, 192, 0.3)',
               color: 'var(--devdoc-accent)',
               marginBottom: '12px',
             }}

@@ -122,12 +122,9 @@ export const SettingsView: React.FC = () => {
       {/* Banner */}
       <div className="incident-header-banner">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 600, color: 'var(--devdoc-fg)' }}>
-              System Health & Readiness Diagnostics
-            </h2>
-            <Badge variant="neutral">Phase 18 Liveness & Readiness</Badge>
-          </div>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 600, color: 'var(--devdoc-fg)' }}>
+            System Health & Readiness Diagnostics
+          </h2>
           <p style={{ fontSize: '13px', color: 'var(--devdoc-fg-muted)', marginTop: '2px' }}>
             Authoritative runtime probes, dependency health checks, container isolation parameters, and governance boundaries.
           </p>

@@ -246,12 +246,9 @@ export const AuditView: React.FC = () => {
       {/* Incident Header Banner */}
       <div className="incident-header-banner">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 600, color: 'var(--devdoc-fg)' }}>
-              Audit Ledger & Governance Trail
-            </h2>
-            <Badge variant="neutral">Phase 18 Audit Log</Badge>
-          </div>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 600, color: 'var(--devdoc-fg)' }}>
+            Audit Ledger & Governance Trail
+          </h2>
           <p style={{ fontSize: '13px', color: 'var(--devdoc-fg-muted)', marginTop: '2px' }}>
             Authoritative append-only log of human approvals, sandbox verifications, and system events.
             {selectedProject && (

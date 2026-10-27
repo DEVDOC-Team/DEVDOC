@@ -38,7 +38,6 @@ export const AppShell: React.FC<AppShellProps> = ({
       {/* Primary Layout Column */}
       <div className="app-main-wrap app-main">
         <TopBar
-          onToggleMobile={() => setMobileOpen((prev) => !prev)}
           onNavigateSignIn={() => onRouteChange('signin')}
           breadcrumb={breadcrumb}
           incidentTitle={incidentTitle}
