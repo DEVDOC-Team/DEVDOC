@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from typing import Any
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.github_client import GitHubAPIClient
@@ -39,10 +41,11 @@ async def initiate_github_connect(
 
 @router.get("/callback", response_model=GitHubConnectionResponse)
 async def github_oauth_callback(
+    request: Request,
     code: str = Query(..., description="Temporary OAuth authorization code"),
     state: str = Query(..., description="Cryptographically signed CSRF state token"),
     db: AsyncSession = Depends(get_db),
-) -> GitHubConnectionResponse:
+) -> Any:
     """Handle GitHub OAuth authorization callback.
 
     Validates CSRF state, exchanges the authorization code for an access token,
@@ -62,6 +65,29 @@ async def github_oauth_callback(
         token_data=token_data,
         github_user=gh_user,
     )
+
+    accept_header = request.headers.get("accept", "")
+    if accept_header.startswith("text/html"):
+        html_content = """<!DOCTYPE html>
+<html>
+<head><title>GitHub Connected - DEVDOC</title></head>
+<body style="background:#0b0f19;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+<div style="text-align:center;max-width:420px;padding:32px;background:#131c31;border-radius:12px;border:1px solid #1e293b;box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+  <div style="font-size:36px;margin-bottom:12px;">✅</div>
+  <h2 style="margin:0 0 8px 0;font-size:18px;color:#f8fafc;">GitHub Connected Successfully</h2>
+  <p style="margin:0;font-size:13px;color:#94a3b8;">Returning to DEVDOC console...</p>
+  <script>
+    if (window.opener) {
+      window.opener.postMessage({ type: 'DEVDOC_GITHUB_CONNECTED' }, '*');
+      window.close();
+    } else {
+      window.location.href = 'http://localhost:5173/?github_connected=true';
+    }
+  </script>
+</div>
+</body>
+</html>"""
+        return HTMLResponse(content=html_content, status_code=200)
 
     return GitHubConnectionResponse(
         connected=True,

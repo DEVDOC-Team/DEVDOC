@@ -28,6 +28,22 @@ export interface AuthSyncResponse {
   user: User;
 }
 
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: {
+    id: string;
+    email: string;
+    role?: string;
+  };
+}
+
 export interface Project {
   id: string;
   name: string;

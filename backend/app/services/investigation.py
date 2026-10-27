@@ -8,9 +8,12 @@ multi-level authorization (project + incident boundary) and data validation.
 from __future__ import annotations
 
 import json
+import tempfile
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -19,13 +22,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.logging import logger
 from app.db.base import _utcnow
+from app.core.github_client import GitHubAPIClient
 from app.models.evidence import Evidence as StoredEvidence
 from app.models.evidence import EvidenceKind
 from app.models.fix_proposal import FixProposal as StoredFixProposal
 from app.models.fix_proposal import FixStatus
+from app.models.github_connection import UserGitHubConnection
 from app.models.incident import Incident
 from app.models.investigation import Investigation, InvestigationStatus
 from app.models.project import Project
+from app.models.repository import Repository
 from app.models.user import User
 from app.schemas.investigation import (
     InvestigationCreate,
@@ -37,8 +43,14 @@ from orchestrator.core.context import InvestigationContext
 from orchestrator.core.factory import create_operational_orchestrator
 from orchestrator.core.orchestrator import DEVDOCOrchestrator
 from orchestrator.core.result import ExecutionStatus, OrchestrationResult
+from orchestrator.fixes.models import FixProposal
 from orchestrator.rca.models import RCAStatus
-from orchestrator.sandbox.models import VerificationStatus
+from orchestrator.sandbox.docker import (
+    create_default_docker_sandbox_provider,
+    is_docker_available,
+)
+from orchestrator.sandbox.models import VerificationCommand, VerificationStatus
+
 
 
 def _canonical_value(val: Any) -> str:
@@ -627,6 +639,88 @@ class InvestigationService:
             investigation.started_at = _utcnow()
             await db.flush()
 
+        # 1. Resolve repository coordinates for real GitHub evidence
+        repo_coords: str | None = None
+        repo_id_str: str | None = None
+        if incident.repository_id is not None:
+            stmt = select(Repository).where(
+                Repository.id == incident.repository_id,
+                Repository.project_id == project.id,
+            )
+            incident_repo = (await db.execute(stmt)).scalar_one_or_none()
+            if incident_repo is not None:
+                repo_coords = incident_repo.full_name
+                repo_id_str = str(incident_repo.id)
+
+        if not repo_coords:
+            stmt = select(Repository).where(
+                Repository.project_id == project.id,
+                Repository.is_active == True,
+            )
+            active_repos = list((await db.execute(stmt)).scalars().all())
+            if len(active_repos) == 1:
+                repo_coords = active_repos[0].full_name
+                repo_id_str = str(active_repos[0].id)
+
+        # 2. Resolve User's GitHub OAuth token
+        github_token: str | None = None
+        target_user_id = investigation.initiated_by_id or project.owner_id
+        if target_user_id:
+            stmt = select(UserGitHubConnection).where(
+                UserGitHubConnection.user_id == target_user_id
+            )
+            user_conn = (await db.execute(stmt)).scalar_one_or_none()
+            if user_conn is not None:
+                github_token = user_conn.access_token
+
+        # 3. Build context with enriched metadata
+        context = InvestigationService.build_orchestration_context(investigation)
+        if repo_coords:
+            context.execution_metadata["github_repo"] = repo_coords
+            context.execution_metadata["target_repo"] = repo_coords
+        if repo_id_str:
+            context.execution_metadata["repository_id"] = repo_id_str
+        if incident.detected_at:
+            context.execution_metadata["incident_detected_at"] = incident.detected_at.isoformat()
+        if incident.title:
+            context.execution_metadata["incident_title"] = incident.title
+        if incident.description:
+            context.execution_metadata["incident_description"] = incident.description
+        if incident.severity:
+            context.execution_metadata["incident_severity"] = incident.severity.value
+
+        async def _default_sandbox_workspace_resolver(
+            ctx: InvestigationContext,
+            prop: FixProposal,
+        ) -> str | Path | None:
+            temp_dir = Path(tempfile.gettempdir()) / f"devdoc-ws-source-{ctx.investigation_id}-{ctx.execution_id}"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            for ch in prop.changes:
+                if ch.target_path:
+                    norm_path = ch.target_path.replace("\\", "/").lstrip("/")
+                    full_path = temp_dir / norm_path
+                    full_path.parent.mkdir(parents=True, exist_ok=True)
+                    if not full_path.exists():
+                        full_path.write_text("# Placeholder base file for verification\n", encoding="utf-8")
+            return temp_dir
+
+        # 4. Resolve GitHub client
+        resolved_github_client = None
+        if github_token or repo_coords:
+            resolved_github_client = GitHubAPIClient(access_token=github_token)
+
+        # 5. Resolve Docker Sandbox provider & workspace resolver
+        sandbox_provider = None
+        workspace_resolver = None
+        verification_commands: list[VerificationCommand] = []
+        if is_docker_available():
+            sandbox_provider = create_default_docker_sandbox_provider()
+            if sandbox_provider is not None:
+                workspace_resolver = _default_sandbox_workspace_resolver
+                verification_commands = [
+                    VerificationCommand(step_index=0, argv=["python", "-m", "compileall", "."])
+                ]
+
         async def _approval_recorder(ctx: InvestigationContext) -> uuid.UUID:
             if (
                 ctx.sandbox_verification_result is None
@@ -640,10 +734,15 @@ class InvestigationService:
             if orchestrator is not None
             else create_operational_orchestrator(
                 config=settings,
+                github_client=resolved_github_client,
+                github_access_token=github_token,
+                sandbox_provider=sandbox_provider,
+                sandbox_workspace_resolver=workspace_resolver,
+                verification_commands=verification_commands,
                 approval_artifact_recorder=_approval_recorder,
             )
         )
-        context = InvestigationService.build_orchestration_context(investigation)
+
 
         try:
             result = await engine.execute(context)

@@ -1,5 +1,20 @@
 import { apiClient, type RequestOptions } from './client';
-import type { AuthSyncResponse, HealthResponse, ReadinessResponse, User } from './types';
+import type { AuthSyncResponse, HealthResponse, LoginRequest, LoginResponse, ReadinessResponse, User } from './types';
+
+/**
+ * Sign in using email and password against the backend Supabase Auth endpoint.
+ * Endpoint: POST /api/v1/auth/login
+ */
+export async function loginWithPassword(
+  credentials: LoginRequest,
+  options?: RequestOptions
+): Promise<LoginResponse> {
+  return apiClient<LoginResponse>('/api/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(credentials),
+    ...options,
+  });
+}
 
 /**
  * Retrieve the current authenticated user's profile.

@@ -47,6 +47,27 @@ def extract_bearer_token(authorization_header: str | None) -> str:
 
     return token
 
+# Module-level cache for PyJWKClient instances keyed by JWKS URL
+_JWKS_CLIENTS: dict[str, jwt.PyJWKClient] = {}
+
+
+def get_jwks_client(jwks_url: str, timeout: int = 10, lifespan: int = 300) -> jwt.PyJWKClient:
+    """Retrieve or initialize a cached PyJWKClient instance for the given JWKS URL."""
+    if jwks_url not in _JWKS_CLIENTS:
+        _JWKS_CLIENTS[jwks_url] = jwt.PyJWKClient(
+            jwks_url,
+            cache_keys=True,
+            max_cached_keys=16,
+            lifespan=lifespan,
+            timeout=timeout,
+        )
+    return _JWKS_CLIENTS[jwks_url]
+
+
+def clear_jwks_cache() -> None:
+    """Clear cached JWKS clients (primarily for testing and key rotations)."""
+    _JWKS_CLIENTS.clear()
+
 
 def verify_and_decode_jwt(
     token: str,
@@ -61,24 +82,27 @@ def verify_and_decode_jwt(
 
     Validates:
     - Cryptographic signature (never skipped or bypassed)
+    - Algorithm strictly matches the explicitly configured expected algorithm (ES256 or HS256)
     - Expiration time (exp)
     - Subject claim (sub) as valid UUID
     - Audience (aud) when configured
-    - Issuer (iss) when configured
+    - Issuer (iss) when configured (normalized without trailing slashes)
 
     Args:
         token: Raw JWT string
-        secret: Optional secret override (defaults to settings.supabase_jwt_secret)
+        secret: Optional secret override for HS256
         algorithm: Optional algorithm override (defaults to settings.supabase_jwt_algorithm)
         audience: Optional audience override (defaults to settings.supabase_jwt_audience)
         issuer: Optional issuer override (defaults to settings.supabase_jwt_issuer)
+        settings_override: Optional configuration settings object for tests
 
     Returns:
         dict containing verified claims.
 
     Raises:
-        HTTPException(401): On expired, malformed, or invalid tokens/signatures.
-        HTTPException(500): If signing keys/secrets are unconfigured.
+        HTTPException(401): On expired, malformed, invalid tokens, untrusted kid, or signature failures.
+        HTTPException(500): If signing keys/JWKS endpoints are misconfigured.
+        HTTPException(503): If the trusted JWKS endpoint is unreachable/unavailable.
     """
     if not token or not isinstance(token, str):
         raise HTTPException(
@@ -87,23 +111,30 @@ def verify_and_decode_jwt(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 1. Determine key and algorithm
+    # 1. Determine key and expected algorithm
     cfg = settings_override or kwargs.get("settings") or settings
-    jwt_secret = secret or (
-        cfg.supabase_jwt_secret.get_secret_value()
-        if getattr(cfg, "supabase_jwt_secret", None)
-        else None
-    )
-    jwt_algorithm = algorithm or getattr(cfg, "supabase_jwt_algorithm", "HS256") or "HS256"
+    expected_alg = (
+        algorithm
+        or getattr(cfg, "supabase_jwt_algorithm", "ES256")
+        or "ES256"
+    ).upper()
+
+    if expected_alg not in ("ES256", "HS256"):
+        logger.error("Configured JWT algorithm %s is not supported", expected_alg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service misconfigured: unsupported algorithm",
+        )
+
     jwt_audience = audience if audience is not None else getattr(cfg, "supabase_jwt_audience", None)
-    jwt_issuer = issuer if issuer is not None else getattr(cfg, "supabase_jwt_issuer", None)
+    raw_issuer = issuer if issuer is not None else getattr(cfg, "supabase_jwt_issuer", None)
+    if not raw_issuer:
+        supabase_url = getattr(cfg, "supabase_url", None)
+        if supabase_url:
+            raw_issuer = f"{supabase_url.rstrip('/')}/auth/v1"
+    jwt_issuer = raw_issuer.rstrip("/") if raw_issuer else None
 
-    # If no explicit issuer is set, but supabase_url is configured, derive it
-    supabase_url = getattr(cfg, "supabase_url", None)
-    if not jwt_issuer and supabase_url:
-        jwt_issuer = f"{supabase_url.rstrip('/')}/auth/v1"
-
-    # Inspect token header without verifying signature to detect asymmetric algorithms / JWKS
+    # Inspect token header without verifying signature to check alg and kid
     try:
         header = jwt.get_unverified_header(token)
     except Exception as exc:
@@ -114,11 +145,76 @@ def verify_and_decode_jwt(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
-    alg = header.get("alg", jwt_algorithm)
+    token_alg = header.get("alg")
+    if not token_alg or token_alg.upper() != expected_alg:
+        logger.warning(
+            "Token algorithm %s does not match expected algorithm %s",
+            token_alg,
+            expected_alg,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token algorithm",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    # Resolve signing key
+    # Resolve signing key strictly based on the configured expected algorithm
     key: Any = None
-    if alg.startswith("HS"):
+    if expected_alg == "ES256":
+        kid = header.get("kid")
+        if not kid:
+            logger.warning("Token missing kid header for asymmetric verification")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token header missing key identifier (kid)",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        jwks_url = getattr(cfg, "supabase_jwks_url", None)
+        if not jwks_url:
+            supabase_url = getattr(cfg, "supabase_url", None)
+            if supabase_url:
+                jwks_url = f"{supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+
+        if not jwks_url:
+            logger.error("No JWKS endpoint or Supabase URL configured for ES256 verification")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication service misconfigured: missing JWKS configuration",
+            )
+
+        try:
+            jwks_client = get_jwks_client(jwks_url)
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            key = signing_key.key
+        except jwt.exceptions.PyJWKClientConnectionError as exc:
+            logger.error("Failed to connect to JWKS endpoint: %s", type(exc).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication service temporarily unavailable",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+        except jwt.exceptions.PyJWKClientError as exc:
+            logger.warning("JWKS key lookup failed for token kid %s: %s", kid, type(exc).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unable to verify token against JWKS",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+        except Exception as exc:
+            logger.warning("Unexpected error retrieving JWKS key: %s", type(exc).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unable to verify token signature",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+
+    elif expected_alg == "HS256":
+        jwt_secret = secret or (
+            cfg.supabase_jwt_secret.get_secret_value()
+            if getattr(cfg, "supabase_jwt_secret", None)
+            else None
+        )
         if not jwt_secret:
             logger.error("SUPABASE_JWT_SECRET is not configured for HMAC verification")
             raise HTTPException(
@@ -126,37 +222,6 @@ def verify_and_decode_jwt(
                 detail="Authentication service misconfigured: missing verification secret",
             )
         key = jwt_secret
-    elif alg.startswith(("RS", "ES")):
-        # Asymmetric key verification via JWKS
-        jwks_url = settings.supabase_jwks_url or (
-            f"{settings.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
-            if settings.supabase_url
-            else None
-        )
-        if not jwks_url:
-            logger.error("No JWKS endpoint or public key configured for asymmetric token (%s)", alg)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Authentication service misconfigured: missing JWKS configuration",
-            )
-        try:
-            jwks_client = jwt.PyJWKClient(jwks_url)
-            signing_key = jwks_client.get_signing_key_from_jwt(token)
-            key = signing_key.key
-        except Exception as exc:
-            logger.warning("Failed to retrieve JWKS signing key: %s", type(exc).__name__)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Unable to verify token against JWKS",
-                headers={"WWW-Authenticate": "Bearer"},
-            ) from exc
-    else:
-        logger.warning("Unsupported JWT algorithm: %s", alg)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Unsupported token algorithm: {alg}",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
     # 2. Cryptographic signature and claim verification
     decode_options = {
@@ -171,7 +236,7 @@ def verify_and_decode_jwt(
         payload = jwt.decode(
             token,
             key=key,
-            algorithms=[alg],
+            algorithms=[expected_alg],
             audience=jwt_audience if jwt_audience else None,
             issuer=jwt_issuer if jwt_issuer else None,
             options=decode_options,

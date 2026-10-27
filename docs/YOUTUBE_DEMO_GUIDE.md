@@ -1,9 +1,9 @@
 # DEVDOC — YouTube Demonstration & Hackathon Presentation Guide
 
-> **DEVDOC**: Autonomous AI DevOps & SRE Incident Remediation Platform  
-> **Repository**: [https://github.com/DEVDOC-Team/DEVDOC](https://github.com/DEVDOC-Team/DEVDOC)  
-> **Working Branch**: `frontend`  
-> **Target Video Length**: 5 – 7 minutes  
+> **DEVDOC**: Autonomous AI DevOps & SRE Incident Remediation Platform
+> **Repository**: [https://github.com/DEVDOC-Team/DEVDOC](https://github.com/DEVDOC-Team/DEVDOC)
+> **Working Branch**: `frontend`
+> **Target Video Length**: 5 – 7 minutes
 
 ---
 
@@ -40,11 +40,11 @@ graph TD
 Run from the repository root (`D:\MY PROJECTS\DEVDOC`):
 
 ```powershell
-# Navigate to repository root
-cd "D:\MY PROJECTS\DEVDOC"
+# Navigate to backend directory
+cd "D:\MY PROJECTS\DEVDOC\backend"
 
 # Activate Python virtual environment and run Uvicorn
-.\backend\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -118,7 +118,7 @@ DEVDOC strictly separates live production infrastructure from simulated demonstr
      - Click **E-03** (Code diff introducing leaky retry loop).
      - Point out the distinct **FACT**, **INFERRED**, and **KNOWLEDGE** epistemic badges.
 - **Narrator**:
-  > *"Now let's examine DevDOC's core engine: the Investigation Console. Notice the banner clearly identifying this as a demonstration fixture. DevDOC organizes its analysis into three epistemic tiers: directly observed FACTS (such as log lines and metric spikes), INFERRED hypotheses (such as HikariCP pool starvation), and external KNOWLEDGE (such as framework socket defaults). By decoupling facts from hypotheses, hallucination is eliminated."*
+  > *"Now let's examine DevDOC's core engine: the Investigation Console. Notice the banner clearly identifying this as a demonstration fixture. DevDOC organizes its analysis into three epistemic tiers: directly observed FACTS (such as log lines and metric spikes), INFERRED hypotheses (such as HikariCP pool starvation), and external KNOWLEDGE (such as framework socket defaults). By decoupling observed facts from hypotheses and validating evidence citations, ungrounded diagnostic assertions are systematically prevented."*
 
 ### Segment 5: Human Approval Gate & Sandbox Safety (4:15 – 5:30)
 - **Visual**: Scroll to the **Remediation Proposal** and click **"Review in Approval Gate"** (or select **Approval Gate** in sidebar).
@@ -137,10 +137,10 @@ DEVDOC strictly separates live production infrastructure from simulated demonstr
 - **Actions**:
   1. Show the append-only record table with SHA-256 digests and actor identities.
   2. Filter by action or hash in the search bar.
-  3. Click **"Export JSON"** to show real compliance and SOC2 export readiness.
+  3. Click **"Export JSON"** to demonstrate structured audit export capability for compliance reviews.
   4. Click **"Return to Live Mode"** to return to empty live states cleanly.
 - **Narrator**:
-  > *"Every action — from metric ingestion to human approval — is stamped into an append-only audit ledger with cryptographic SHA-256 digests. This guarantees complete auditability for SOC2 and regulatory compliance. With one click, teams can export the full ledger as structured JSON, or return instantly to live monitoring."*
+  > *"Every action — from metric ingestion to human approval — is stamped into an append-only audit ledger with cryptographic SHA-256 digests. This provides immutable, cryptographic auditability for incident remediation reviews. With one click, teams can export the full ledger as structured JSON, or return instantly to live monitoring."*
 
 ### Segment 7: Conclusion & Vision (6:15 – 6:45)
 - **Visual**: Return to **System Overview** / **Investigation Console** with the DevDOC logo visible in the header.
@@ -163,6 +163,55 @@ DEVDOC strictly separates live production infrastructure from simulated demonstr
 
 ### Q4: Vite port 5173 is already in use
 - **Fix**: Run `npm run dev -- --port 5174` and open [http://localhost:5174](http://localhost:5174).
+
+---
+
+## 6. Concise 6-Pillar Presenter Script & Flow
+
+### Repeatable Demo Execution Sequence:
+1. **The Incident and Its Impact:**
+   - Presenter opens the incident view showing an open production failure (e.g. database connection pool saturation or service degradation). Highlight the severity, detected timestamp, and affected service.
+2. **Real GitHub Evidence Collection:**
+   - Demonstrate the automated collection of commit history, changed diffs, and repository metadata from `DEVDOC-Team/DEVDOC`.
+   - Show evidence provenance tracking (`agent_id`, `collected_at`, `source_reference`) and note that temporal proximity is correlated without making unsubstantiated causal leaps.
+3. **Evidence-Grounded Nemotron Diagnosis:**
+   - Showcase NVIDIA Nemotron-3.5 (via Nebius Token Factory) executing structured root-cause epistemic reasoning.
+   - Point out that every diagnostic claim strictly links to a valid observed `evidence_id`, and that uncertainties and missing information are honestly reported.
+4. **Proposed Remediation:**
+   - Display the minimal, targeted code patch generated by the engine addressing the identified root cause.
+5. **Human Approval & Safe Docker Sandbox Verification:**
+   - Show the candidate fix executing inside the isolated Docker sandbox (`python:3.13-alpine@sha256:...`, non-root UID `65532:65532`, `--network none`, read-only rootfs).
+   - Show the sandbox compile/test verification passing.
+   - Demonstrate the mandatory human approval gate: the system prevents automated merge or deployment, and requires a reviewer rationale of at least 8 non-whitespace characters.
+6. **Persisted Investigation Result & Immutable Audit Trail:**
+   - Verify the synchronized persistence into PostgreSQL/SQLite: investigation marked completed, fix proposal stored, and immutable SHA-256 audit log stamped with actor identity and timestamp.
+
+### Presenter Script (Read-Aloud):
+
+> **Problem:**
+> "When high-severity production incidents strike, engineers face high-stakes cognitive overload. Telemetry is scattered across dashboards, recent git commits are disconnected from monitoring alerts, and manual root-cause investigations take hours of valuable downtime."
+>
+> **Architecture & AI Usage:**
+> "DEVDOC solves this by serving as an autonomous AI DevOps engineer. Powered by a high-performance FastAPI backend, React 19 frontend, and NVIDIA Nemotron via Nebius Token Factory, DEVDOC continuously correlates real GitHub repository evidence with operational telemetry. Crucially, its epistemic reasoning engine strictly mandates that any diagnostic claim must link to verified evidence IDs—ensuring every finding is provably grounded in collected facts."
+>
+> **Safety Controls:**
+> "Autonomy requires absolute safety. DEVDOC enforces a hard $25 budget ceiling, runs all verification tests in an air-gapped Docker container with zero network access and a read-only root filesystem, and never merges code automatically. Every change must pass an authoritative Human Approval Gate requiring written justification."
+>
+> **Outcome:**
+> "The result is a structured, verifiable investigation workflow executed in an isolated sandbox with an immutable SHA-256 audit trail ready for compliance review."
+
+---
+
+## 7. Submission Checklist & Readiness Verification
+
+- [x] **Repository & Branch:** `D:\MY PROJECTS\DEVDOC`, branch `frontend`.
+- [x] **Code Preservation:** All pre-existing work (Supabase ES256/JWKS auth, Phase 8-10 engine) preserved with zero regressions.
+- [x] **Secret Protection:** No API keys, credentials, or `.env` secrets committed or exposed.
+- [x] **Backend Test Suite:** 519 passed, 0 failed (including all 14 PostgreSQL RLS integration tests live on PostgreSQL).
+- [x] **Frontend Test Suite:** 85 passed, 0 failed.
+- [x] **Frontend Build:** `npm run build` generates optimized production bundle in 1.64s.
+- [x] **Live Integrations Verified:** GitHub API, Docker Desktop sandbox (Engine 29.6.2), Nebius Nemotron-3.5 Token Factory.
+- [x] **Honest Labeling:** Demo fallback (`INC-2291`) clearly designated with persistent warning banners; real runtimes labeled accurately.
 
 ---
 

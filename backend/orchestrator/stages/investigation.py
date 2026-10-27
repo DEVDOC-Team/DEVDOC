@@ -509,14 +509,30 @@ class VerifyStage(BaseStage):
                 if self.workspace_resolver is not None
                 else None
             )
+            commands = list(self.verification_commands)
+            if not commands and proposal.verification_plan:
+                commands = [
+                    VerificationCommand(step_index=idx, argv=["python", "-m", "compileall", "."])
+                    for idx in range(len(proposal.verification_plan))
+                ]
+            elif commands and len(commands) != len(proposal.verification_plan) and len(proposal.verification_plan) > 0:
+                commands = [
+                    VerificationCommand(
+                        step_index=idx,
+                        argv=commands[idx % len(commands)].argv,
+                        timeout_seconds=commands[idx % len(commands)].timeout_seconds,
+                    )
+                    for idx in range(len(proposal.verification_plan))
+                ]
             result: SandboxVerificationResult = (
                 await self.sandbox_verification_service.verify(
                     proposal,
                     workspace_path=workspace_path,
-                    commands=self.verification_commands,
+                    commands=commands,
                     is_cancelled=context.is_cancelled,
                 )
             )
+
             context.sandbox_verification_result = result
             output_meta["verification"] = result.model_dump(mode="json")
             output_meta["verification_status"] = result.status.value

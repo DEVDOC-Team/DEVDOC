@@ -22,3 +22,15 @@ class AuthSyncResponse(BaseModel):
     success: bool = True
     message: str
     user: UserResponse
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int | None = None
+    user: dict | None = None

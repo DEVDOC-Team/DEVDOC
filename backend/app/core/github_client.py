@@ -169,12 +169,10 @@ class GitHubAPIClient:
             return response.json()
 
         # Handle specific error status codes
-        body = None
-        with httpx.Response(status_code=status_code) as _:  # noqa: F841
-            try:
-                body = response.json()
-            except Exception:
-                body = response.text
+        try:
+            body = response.json()
+        except Exception:
+            body = response.text
 
         # Rate limit checks
         remaining = response.headers.get("x-ratelimit-remaining")

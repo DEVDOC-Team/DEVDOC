@@ -24,6 +24,50 @@ from orchestrator.sandbox.models import (
 _PINNED_IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:+-]{0,254}@sha256:[0-9a-f]{64}$")
 _SENSITIVE_ENV_KEY = re.compile(r"(?i)(token|password|secret|api[_-]?key|access[_-]?key|private[_-]?key|credential|auth)")
 
+DEFAULT_PINNED_SANDBOX_IMAGE = (
+    "python:3.13-alpine@sha256:bf12ecc0bea3f171d55145dd02c78b5eeb09f30ee2ac9cc2b4c9e4e8f5e30741"
+)
+
+
+def is_docker_available(
+    image: str = DEFAULT_PINNED_SANDBOX_IMAGE, executable: str = "docker"
+) -> bool:
+    """Check if the Docker daemon is reachable and the pinned sandbox image is cached locally."""
+    import shutil
+    import subprocess
+
+    if not shutil.which(executable):
+        return False
+    try:
+        info_res = subprocess.run(
+            [executable, "info"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        if info_res.returncode != 0:
+            return False
+        img_res = subprocess.run(
+            [executable, "image", "inspect", image],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return img_res.returncode == 0
+    except Exception:
+        return False
+
+
+def create_default_docker_sandbox_provider(
+    image: str = DEFAULT_PINNED_SANDBOX_IMAGE,
+    executable: str = "docker",
+) -> DockerSandboxProvider | None:
+    """Instantiate DockerSandboxProvider if the Docker daemon and pinned image are available."""
+    if is_docker_available(image=image, executable=executable):
+        return DockerSandboxProvider(image=image, executable=executable)
+    return None
+
+
 
 class DockerSandboxError(SandboxProviderError):
     """A Docker operation failed; output is bounded and credential-free."""

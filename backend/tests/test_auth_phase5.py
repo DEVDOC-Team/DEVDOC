@@ -534,3 +534,55 @@ async def test_live_pg_session_identity_and_connection_isolation():
     finally:
         if conn and not conn.is_closed():
             await conn.close()
+
+
+def test_login_with_password_success(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """Verify POST /api/v1/auth/login authenticates via Supabase Auth and returns access token."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "access_token": "supabase_es256_mock_access_token",
+        "token_type": "bearer",
+        "expires_in": 3600,
+        "user": {"id": str(uuid.uuid4()), "email": "engineer@devdoc.ai"},
+    }
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = client.post(
+            "/api/v1/auth/login",
+            json={"email": "engineer@devdoc.ai", "password": "correct_password"},
+        )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["access_token"] == "supabase_es256_mock_access_token"
+    assert data["token_type"] == "bearer"
+    assert data["user"]["email"] == "engineer@devdoc.ai"
+
+
+def test_login_with_password_invalid_credentials(client: TestClient):
+    """Verify POST /api/v1/auth/login rejects bad credentials with 401."""
+    from unittest.mock import AsyncMock, patch
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 400
+    mock_resp.json.return_value = {"error": "invalid_grant", "error_description": "Invalid login credentials"}
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = client.post(
+            "/api/v1/auth/login",
+            json={"email": "engineer@devdoc.ai", "password": "wrong_password"},
+        )
+
+    assert res.status_code == 401
+    assert "Invalid email or password" in res.json()["detail"]
+
+
+def test_login_with_password_empty_credentials(client: TestClient):
+    """Verify POST /api/v1/auth/login validates required fields."""
+    res = client.post("/api/v1/auth/login", json={"email": "", "password": ""})
+    assert res.status_code == 400
