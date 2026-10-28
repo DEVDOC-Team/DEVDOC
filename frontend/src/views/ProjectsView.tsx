@@ -680,7 +680,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(10, 16, 32, 0.75)',
+            background: 'rgba(16, 18, 20, 0.75)',
             backdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',
@@ -693,28 +693,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
           <div
             style={{ width: '100%', maxWidth: '620px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
             onClick={(e) => e.stopPropagation()}
-            style={{
-              display: 'inline-flex',
-              padding: '12px',
-              borderRadius: '50%',
-              background: 'rgba(174, 184, 192, 0.1)',
-              color: 'var(--devdoc-accent)',
-              marginBottom: '12px',
-            }}
-          >
-            <FolderGit2 size={28} />
-          </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--devdoc-fg)' }}>
-            No Monitored Projects Found
-          </h3>
-          <p style={{ fontSize: '13px', color: 'var(--devdoc-fg-muted)', maxWidth: '420px', margin: '6px auto 16px' }}>
-            Create your first project to bind code repositories, configure ephemeral test sandboxes, and enable autonomous incident investigation.
-          </p>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setShowCreateModal(true)}
-            icon={<Plus size={14} />}
           >
             <Panel
               title={
@@ -793,8 +771,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
                   overflowY: 'auto',
                   border: '1px solid var(--devdoc-border-subtle)',
                   borderRadius: 'var(--radius-sm)',
-                  border: isSelected ? '1px solid var(--devdoc-accent)' : undefined,
-                  boxShadow: isSelected ? '0 0 16px rgba(174, 184, 192, 0.1)' : undefined,
                 }}
               >
                 {repoListLoading ? (

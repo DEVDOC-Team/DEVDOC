@@ -34,6 +34,8 @@ interface DisplayAuditRecord {
   isReal: boolean;
 }
 
+const getCurrentIsoTimestamp = (): string => new Date().toISOString();
+
 const DEMO_AUDIT_RECORDS: DisplayAuditRecord[] = [
   {
     id: 'AUD-9014',
@@ -185,7 +187,7 @@ export const AuditView: React.FC = () => {
     const exportPayload = {
       is_demo_data: isViewingDemo,
       warning: isViewingDemo ? 'DEMO DATA — NOT A LIVE AUDIT TRAIL' : undefined,
-      exported_at: new Date().toISOString(),
+      exported_at: getCurrentIsoTimestamp(),
       project_id: selectedProject?.id,
       investigation_id: activeInvestigation?.id,
       total_records: recordsToDisplay.length,

@@ -79,6 +79,8 @@ TEST_ISSUER = "https://test.supabase.co/auth/v1"
 TEST_AUDIENCE = "authenticated"
 
 TEST_SETTINGS = Settings(
+    supabase_url="https://test.supabase.co",
+    supabase_anon_key="test-anon-key-1234",
     supabase_jwt_secret=TEST_JWT_SECRET,
     supabase_jwt_algorithm="HS256",
     supabase_jwt_issuer=TEST_ISSUER,
@@ -155,6 +157,7 @@ def client(sqlite_session_factory, monkeypatch):
     monkeypatch.setattr("app.core.security.settings", TEST_SETTINGS)
     monkeypatch.setattr("app.core.config.settings", TEST_SETTINGS)
     monkeypatch.setattr("app.services.github.settings", TEST_SETTINGS)
+    monkeypatch.setattr("app.api.v1.auth.settings", TEST_SETTINGS)
 
     async def override_get_db() -> AsyncGenerator[AsyncSession]:
         async with sqlite_session_factory() as session:
@@ -1148,3 +1151,220 @@ def test_project_investigation_endpoints(client):
         rw = client.get(f"/api/v1/projects/{project_id}/github/workflows", headers=headers)
         assert rw.status_code == 200
         assert rw.json()["total_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 6. OAuth Redirect URI, Callback Configuration & Separation Tests
+# ---------------------------------------------------------------------------
+
+
+def test_github_oauth_url_and_redirect_uri_configuration(client):
+    """Verify authorization URL matches exact redirect_uri configuration and encoding."""
+    import urllib.parse
+
+    user_id = str(uuid.uuid4())
+    token = make_test_token(sub=user_id)
+    client.post("/api/v1/auth/sync", headers={"Authorization": f"Bearer {token}"})
+
+    response = client.get(
+        "/api/v1/github/connect",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    auth_url = data["authorization_url"]
+
+    parsed = urllib.parse.urlparse(auth_url)
+    params = urllib.parse.parse_qs(parsed.query)
+
+    assert params["client_id"] == [TEST_SETTINGS.github_client_id]
+    assert params["redirect_uri"] == [TEST_SETTINGS.github_oauth_redirect_uri]
+    assert params["scope"] == ["repo,read:user"]
+    assert "state" in params
+
+    # Verify state validity
+    state_user_id = GitHubIntegrationService.verify_oauth_state(params["state"][0])
+    assert str(state_user_id) == user_id
+
+
+def test_github_settings_redirect_uri_normalization():
+    """Verify Settings strips trailing slashes, whitespace, and quotes from redirect URI."""
+    s1 = Settings(
+        github_oauth_redirect_uri="  'http://localhost:8000/api/v1/github/callback/'  ",
+        github_client_id="  'test-client-id'  ",
+    )
+    assert s1.github_oauth_redirect_uri == "http://localhost:8000/api/v1/github/callback"
+    assert s1.github_client_id == "test-client-id"
+
+    s2 = Settings(
+        github_oauth_redirect_uri='  "http://localhost:8000/api/v1/github/callback"  ',
+    )
+    assert s2.github_oauth_redirect_uri == "http://localhost:8000/api/v1/github/callback"
+
+
+def test_github_oauth_callback_slash_alias(client):
+    """Verify both /callback and /callback/ respond identically without 307 redirects."""
+    user_id = str(uuid.uuid4())
+    token = make_test_token(sub=user_id)
+    client.post("/api/v1/auth/sync", headers={"Authorization": f"Bearer {token}"})
+
+    state = GitHubIntegrationService.generate_oauth_state(uuid.UUID(user_id))
+    mock_token_data = {
+        "access_token": "gho_secret_access_token_alias",
+        "token_type": "bearer",
+        "scope": "repo,read:user",
+    }
+    mock_gh_user = {
+        "id": 11223344,
+        "login": "octocat-alias",
+        "avatar_url": "https://avatars.githubusercontent.com/u/11223344",
+    }
+
+    with (
+        patch.object(GitHubIntegrationService, "exchange_code_for_token", new_callable=AsyncMock) as mock_exchange,
+        patch.object(GitHubAPIClient, "get_authenticated_user", new_callable=AsyncMock) as mock_user,
+    ):
+        mock_exchange.return_value = mock_token_data
+        mock_user.return_value = mock_gh_user
+
+        response = client.get(
+            f"/api/v1/github/callback/?code=mock_code_slash&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["connected"] is True
+    assert data["github_username"] == "octocat-alias"
+
+
+def test_github_oauth_callback_cancellation_and_error(client):
+    """Verify OAuth callback gracefully handles error responses from GitHub or user cancellation."""
+    # 1. JSON mode error
+    res_json = client.get(
+        "/api/v1/github/callback?error=access_denied&error_description=User+denied+access&state=any_state",
+    )
+    assert res_json.status_code == 400
+    json_data = res_json.json()
+    err_msg = json_data.get("error", {}).get("message") or json_data.get("detail", "")
+    assert "User denied access" in err_msg
+
+    # 2. HTML popup mode error
+    res_html = client.get(
+        "/api/v1/github/callback?error=access_denied&error_description=User+denied+access&state=any_state",
+        headers={"Accept": "text/html,application/xhtml+xml"},
+    )
+    assert res_html.status_code == 200
+    assert "GitHub Authorization Cancelled" in res_html.text
+    assert "DEVDOC_GITHUB_CANCELLED" in res_html.text
+
+    # 3. Missing code and missing error
+    res_missing = client.get("/api/v1/github/callback?state=dummy_state")
+    assert res_missing.status_code == 400
+    missing_data = res_missing.json()
+    missing_msg = missing_data.get("error", {}).get("message") or missing_data.get("detail", "")
+    assert "Missing OAuth authorization code" in missing_msg
+
+
+def test_platform_signin_and_repo_oauth_separation(client):
+    """Verify repository authorization and platform sign-in are strictly separated."""
+    # Platform sign-in URL points to Supabase GoTrue
+    res_auth = client.get("/api/v1/auth/oauth/github/url?redirect_to=http://localhost:5173")
+    assert res_auth.status_code == 200
+    auth_data = res_auth.json()
+    assert "auth/v1/authorize" in auth_data["authorization_url"]
+    assert "provider=github" in auth_data["authorization_url"]
+
+    # Repository OAuth URL points directly to GitHub OAuth with repo scope
+    user_id = str(uuid.uuid4())
+    token = make_test_token(sub=user_id)
+    client.post("/api/v1/auth/sync", headers={"Authorization": f"Bearer {token}"})
+
+    res_repo = client.get("/api/v1/github/connect", headers={"Authorization": f"Bearer {token}"})
+    assert res_repo.status_code == 200
+    repo_data = res_repo.json()
+    assert "https://github.com/login/oauth/authorize" in repo_data["authorization_url"]
+    assert "repo%2Cread%3Auser" in repo_data["authorization_url"] or "repo,read:user" in repo_data["authorization_url"]
+
+
+def test_github_settings_secret_normalization():
+    """Verify Settings strips quotes and whitespace from github_client_secret."""
+    s1 = Settings(github_client_secret="  'gh_secret_test_123'  ")
+    assert s1.github_client_secret.get_secret_value() == "gh_secret_test_123"
+
+    s2 = Settings(github_client_secret='  "gh_secret_test_456"  ')
+    assert s2.github_client_secret.get_secret_value() == "gh_secret_test_456"
+
+    from pydantic import SecretStr
+    s3 = Settings(github_client_secret=SecretStr("  'gh_secret_test_789'  "))
+    assert s3.github_client_secret.get_secret_value() == "gh_secret_test_789"
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_for_token_sanitization_and_payload(monkeypatch):
+    """Verify exchange_code_for_token strips quotes/whitespace and sends expected OAuth payload."""
+    import json
+    import httpx
+
+    monkeypatch.setattr("app.services.github.settings", TEST_SETTINGS)
+
+    captured_requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        body = json.loads(request.content.decode("utf-8"))
+        # Verify the captured body contains clean strings without surrounding quotes or whitespace
+        assert body["client_id"] == TEST_SETTINGS.github_client_id
+        assert body["client_secret"] == TEST_SETTINGS.github_client_secret.get_secret_value()
+        assert body["code"] == "test_auth_code_999"
+        assert body["redirect_uri"] == TEST_SETTINGS.github_oauth_redirect_uri
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "access_token": "gho_live_mock_access_token_123",
+                "token_type": "bearer",
+                "scope": "repo,read:user",
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        result = await GitHubIntegrationService.exchange_code_for_token(
+            code="  test_auth_code_999  ",
+            http_client=http_client,
+        )
+
+    assert result["access_token"] == "gho_live_mock_access_token_123"
+    assert len(captured_requests) == 1
+    assert captured_requests[0].url == "https://github.com/login/oauth/access_token"
+    assert captured_requests[0].headers["accept"] == "application/json"
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_for_token_github_credential_error(monkeypatch):
+    """Verify GitHub incorrect_client_credentials error translates to HTTP 400."""
+    import httpx
+    from fastapi import HTTPException
+
+    monkeypatch.setattr("app.services.github.settings", TEST_SETTINGS)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            json={
+                "error": "incorrect_client_credentials",
+                "error_description": "The client_id and/or client_secret passed are incorrect.",
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        with pytest.raises(HTTPException) as exc_info:
+            await GitHubIntegrationService.exchange_code_for_token(
+                code="mock_code",
+                http_client=http_client,
+            )
+
+    assert exc_info.value.status_code == 400
+    assert "The client_id and/or client_secret passed are incorrect" in str(exc_info.value.detail)

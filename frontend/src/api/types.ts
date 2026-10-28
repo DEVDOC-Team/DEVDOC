@@ -44,6 +44,26 @@ export interface LoginResponse {
   };
 }
 
+export type OAuthProvider = 'google' | 'github';
+
+export interface OAuthAuthorizeUrlResponse {
+  provider: OAuthProvider;
+  authorization_url: string;
+  redirect_to: string;
+}
+
+export interface OAuthExchangeRequest {
+  auth_code: string;
+  code_verifier?: string;
+  redirect_to?: string;
+}
+
+export interface OAuthProviderInfo {
+  id: OAuthProvider;
+  name: string;
+  enabled: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;

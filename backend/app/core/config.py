@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from pathlib import Path
 import re
 from typing import Annotated, Any, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+_BACKEND_ENV = _BACKEND_DIR / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(_BACKEND_ENV, ".env") if _BACKEND_ENV.is_file() else ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -156,6 +160,33 @@ class Settings(BaseSettings):
         default="http://localhost:8000/api/v1/github/callback"
     )
     github_api_base_url: str = Field(default="https://api.github.com")
+
+    @field_validator("github_client_id", mode="before")
+    @classmethod
+    def normalize_github_client_id(cls, value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip().strip("'\"").strip()
+        return ""
+
+    @field_validator("github_client_secret", mode="before")
+    @classmethod
+    def normalize_github_client_secret(cls, value: Any) -> SecretStr:
+        if isinstance(value, SecretStr):
+            val = value.get_secret_value().strip().strip("'\"").strip()
+            return SecretStr(val)
+        if isinstance(value, str):
+            return SecretStr(value.strip().strip("'\"").strip())
+        return SecretStr("")
+
+    @field_validator("github_oauth_redirect_uri", mode="before")
+    @classmethod
+    def normalize_github_oauth_redirect_uri(cls, value: Any) -> str:
+        if isinstance(value, str) and value.strip():
+            val = value.strip().strip("'\"").strip()
+            if val.endswith("/") and not val.endswith("://"):
+                val = val.rstrip("/")
+            return val
+        return "http://localhost:8000/api/v1/github/callback"
 
     # ------------------------------------------------------------------ #
     # LLM reasoning — Phase 13 (opt-in; never initialized during startup)

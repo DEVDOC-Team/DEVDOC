@@ -244,8 +244,13 @@ async def sqlite_session_factory(sqlite_engine):
 
 
 @pytest.fixture(scope="function")
-def test_app(sqlite_session_factory):
+def test_app(sqlite_session_factory, monkeypatch: pytest.MonkeyPatch):
     """FastAPI test application with overridden DB and security settings."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "supabase_url", "https://mock-supabase.example.com")
+    monkeypatch.setattr(settings, "supabase_anon_key", "mock_anon_key_12345")
+
     app = FastAPI(title="DEVDOC Auth Test App")
     app.include_router(auth_router, prefix="/api/v1")
 
@@ -565,9 +570,9 @@ def test_login_with_password_success(client: TestClient, monkeypatch: pytest.Mon
 
 def test_login_with_password_invalid_credentials(client: TestClient):
     """Verify POST /api/v1/auth/login rejects bad credentials with 401."""
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock, MagicMock, patch
 
-    mock_resp = AsyncMock()
+    mock_resp = MagicMock()
     mock_resp.status_code = 400
     mock_resp.json.return_value = {"error": "invalid_grant", "error_description": "Invalid login credentials"}
 
@@ -586,3 +591,327 @@ def test_login_with_password_empty_credentials(client: TestClient):
     """Verify POST /api/v1/auth/login validates required fields."""
     res = client.post("/api/v1/auth/login", json={"email": "", "password": ""})
     assert res.status_code == 400
+
+
+def test_login_with_password_unconfirmed_email(client: TestClient):
+    """Verify POST /api/v1/auth/login maps email_not_confirmed to HTTP 400 with actionable detail."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 400
+    mock_resp.json.return_value = {
+        "code": 400,
+        "error_code": "email_not_confirmed",
+        "msg": "Email not confirmed",
+    }
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = client.post(
+            "/api/v1/auth/login",
+            json={"email": "unconfirmed@devdoc.ai", "password": "any_password"},
+        )
+
+    assert res.status_code == 400
+    assert "not been confirmed" in res.json()["detail"]
+
+
+def test_login_with_password_rate_limited(client: TestClient):
+    """Verify POST /api/v1/auth/login maps 429 over_request_rate_limit to HTTP 429."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 429
+    mock_resp.json.return_value = {
+        "code": 429,
+        "error_code": "over_request_rate_limit",
+        "msg": "Too many requests",
+    }
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = client.post(
+            "/api/v1/auth/login",
+            json={"email": "engineer@devdoc.ai", "password": "any_password"},
+        )
+
+    assert res.status_code == 429
+    assert "Too many authentication attempts" in res.json()["detail"]
+
+
+def test_login_with_password_timeout(client: TestClient):
+    """Verify POST /api/v1/auth/login converts provider timeout to HTTP 504."""
+    from unittest.mock import patch
+
+    import httpx
+
+    with patch("httpx.AsyncClient.post", side_effect=httpx.TimeoutException("Connection timed out")):
+        res = client.post(
+            "/api/v1/auth/login",
+            json={"email": "engineer@devdoc.ai", "password": "any_password"},
+        )
+
+    assert res.status_code == 504
+    assert "timed out" in res.json()["detail"]
+
+
+def test_login_with_password_network_error(client: TestClient):
+    """Verify POST /api/v1/auth/login converts network connection failure to HTTP 503."""
+    from unittest.mock import patch
+
+    import httpx
+
+    with patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused")):
+        res = client.post(
+            "/api/v1/auth/login",
+            json={"email": "engineer@devdoc.ai", "password": "any_password"},
+        )
+
+    assert res.status_code == 503
+    assert "unavailable" in res.json()["detail"]
+
+
+def test_login_with_password_missing_config(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """Verify POST /api/v1/auth/login fails safely with HTTP 500 when Supabase is unconfigured."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "supabase_url", "")
+    res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "engineer@devdoc.ai", "password": "any_password"},
+    )
+    assert res.status_code == 500
+    assert "not configured" in res.json()["detail"]
+
+
+def test_login_with_password_provider_invalid_api_key(client: TestClient):
+    """Verify POST /api/v1/auth/login identifies backend API key gateway rejection as HTTP 500 configuration error."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 401
+    mock_resp.json.return_value = {"message": "Invalid API key"}
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = client.post(
+            "/api/v1/auth/login",
+            json={"email": "engineer@devdoc.ai", "password": "any_password"},
+        )
+
+    assert res.status_code == 500
+    assert "configuration error" in res.json()["detail"]
+
+
+def test_login_with_password_provider_500(client: TestClient):
+    """Verify POST /api/v1/auth/login maps provider 500 outage to HTTP 503."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 500
+    mock_resp.json.return_value = {"msg": "Internal Server Error"}
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = client.post(
+            "/api/v1/auth/login",
+            json={"email": "engineer@devdoc.ai", "password": "any_password"},
+        )
+
+    assert res.status_code == 503
+    assert "temporarily unavailable" in res.json()["detail"]
+
+
+def test_oauth_providers_list(client: TestClient):
+    """Verify GET /api/v1/auth/oauth/providers returns Google and GitHub providers."""
+    res = client.get("/api/v1/auth/oauth/providers")
+    assert res.status_code == 200
+    providers = res.json()
+    assert isinstance(providers, list)
+    ids = {p["id"] for p in providers}
+    assert "google" in ids
+    assert "github" in ids
+
+
+def test_oauth_google_authorize_url_success(client: TestClient):
+    """Verify GET /api/v1/auth/oauth/google/url returns properly formatted Supabase GoTrue authorize URL."""
+    res = client.get("/api/v1/auth/oauth/google/url?redirect_to=http://localhost:5173")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["provider"] == "google"
+    assert "auth/v1/authorize" in data["authorization_url"]
+    assert "provider=google" in data["authorization_url"]
+    assert data["redirect_to"] == "http://localhost:5173"
+
+
+def test_oauth_github_authorize_url_success(client: TestClient):
+    """Verify GET /api/v1/auth/oauth/github/url returns properly formatted Supabase GoTrue authorize URL."""
+    res = client.get("/api/v1/auth/oauth/github/url?redirect_to=http://localhost:5173")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["provider"] == "github"
+    assert "auth/v1/authorize" in data["authorization_url"]
+    assert "provider=github" in data["authorization_url"]
+
+
+def test_oauth_unsupported_provider_rejected(client: TestClient):
+    """Verify GET /api/v1/auth/oauth/{provider}/url rejects unauthorized providers with HTTP 400."""
+    res = client.get("/api/v1/auth/oauth/unsupported_provider/url")
+    assert res.status_code == 400
+    assert "Unsupported OAuth provider" in res.json()["detail"]
+
+
+def test_oauth_unapproved_redirect_uri_rejected(client: TestClient):
+    """Verify open redirect protection blocks unapproved origins with HTTP 400."""
+    res = client.get(
+        "/api/v1/auth/oauth/google/url?redirect_to=https://evil-attacker.example.com/callback"
+    )
+    assert res.status_code == 400
+    assert "not authorized" in res.json()["detail"]
+
+
+def test_oauth_exchange_success(client: TestClient):
+    """Verify POST /api/v1/auth/oauth/exchange exchanges auth code for token."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "access_token": "supabase_oauth_access_token_mock",
+        "token_type": "bearer",
+        "expires_in": 3600,
+        "user": {"id": str(uuid.uuid4()), "email": "oauth_user@devdoc.ai"},
+    }
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = client.post(
+            "/api/v1/auth/oauth/exchange",
+            json={"auth_code": "valid_mock_code", "code_verifier": "valid_mock_verifier"},
+        )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["access_token"] == "supabase_oauth_access_token_mock"
+    assert data["user"]["email"] == "oauth_user@devdoc.ai"
+
+
+def test_oauth_exchange_invalid_code(client: TestClient):
+    """Verify POST /api/v1/auth/oauth/exchange handles rejected code safely."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 400
+    mock_resp.json.return_value = {"error_description": "Invalid authorization code"}
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = client.post(
+            "/api/v1/auth/oauth/exchange",
+            json={"auth_code": "expired_mock_code"},
+        )
+
+    assert res.status_code == 400
+    assert "Invalid authorization code" in res.json()["detail"]
+
+
+def test_oauth_missing_config(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """Verify OAuth endpoints fail gracefully when Supabase is unconfigured."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "supabase_url", "")
+    res = client.get("/api/v1/auth/oauth/google/url")
+    assert res.status_code == 500
+    assert "not configured" in res.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# PART 6: Regression Tests for Production V1 Router Public & Protected Access
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="function")
+def production_v1_client(sqlite_session_factory, monkeypatch: pytest.MonkeyPatch):
+    """TestClient using the full production v1_router with rate limits and dependencies."""
+    from app.api.v1.router import v1_router
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "supabase_url", "https://mock-supabase.example.com")
+    monkeypatch.setattr(settings, "supabase_anon_key", "mock_anon_key_12345")
+
+    app = FastAPI(title="DEVDOC Production V1 Router Test App")
+    app.include_router(v1_router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession]:
+        async with sqlite_session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[get_db] = override_get_db
+    return TestClient(app)
+
+
+def test_v1_router_public_oauth_providers_unauthenticated(production_v1_client: TestClient):
+    """Regression test: GET /api/v1/auth/oauth/providers must be public without an Authorization header."""
+    res = production_v1_client.get("/api/v1/auth/oauth/providers")
+    assert res.status_code == 200
+    providers = res.json()
+    assert isinstance(providers, list)
+    ids = {p["id"] for p in providers}
+    assert "google" in ids
+    assert "github" in ids
+
+
+def test_v1_router_public_oauth_authorize_url_unauthenticated(production_v1_client: TestClient):
+    """Regression test: GET /api/v1/auth/oauth/google/url must be public without an Authorization header."""
+    res = production_v1_client.get("/api/v1/auth/oauth/google/url?redirect_to=http://localhost:5173")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["provider"] == "google"
+    assert "auth/v1/authorize" in data["authorization_url"]
+
+
+def test_v1_router_public_login_unauthenticated(production_v1_client: TestClient):
+    """Regression test: POST /api/v1/auth/login must not fail with 'Missing Authorization header'."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "access_token": "supabase_v1_token_mock",
+        "token_type": "bearer",
+        "expires_in": 3600,
+        "user": {"id": str(uuid.uuid4()), "email": "engineer@devdoc.ai"},
+    }
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = production_v1_client.post(
+            "/api/v1/auth/login",
+            json={"email": "engineer@devdoc.ai", "password": "correct_password"},
+        )
+
+    assert res.status_code == 200
+    assert res.json()["access_token"] == "supabase_v1_token_mock"
+
+
+def test_v1_router_protected_endpoints_require_token(production_v1_client: TestClient):
+    """Regression test: Protected endpoints must strictly reject unauthenticated requests with 401."""
+    # 1. /api/v1/auth/me
+    res_me = production_v1_client.get("/api/v1/auth/me")
+    assert res_me.status_code == 401
+    assert "Missing Authorization header" in res_me.json()["detail"]
+
+    # 2. /api/v1/auth/sync
+    res_sync = production_v1_client.post("/api/v1/auth/sync")
+    assert res_sync.status_code == 401
+    assert "Missing Authorization header" in res_sync.json()["detail"]
+
+    # 3. /api/v1/projects
+    res_proj = production_v1_client.get("/api/v1/projects")
+    assert res_proj.status_code == 401
+    assert "Missing Authorization header" in res_proj.json()["detail"]

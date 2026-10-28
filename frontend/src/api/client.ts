@@ -46,7 +46,11 @@ export const AUTH_TOKEN_KEY = 'devdoc_auth_token';
 
 export const getStoredToken = (): string | null => {
   try {
-    return localStorage.getItem(AUTH_TOKEN_KEY) || sessionStorage.getItem(AUTH_TOKEN_KEY);
+    const raw = localStorage.getItem(AUTH_TOKEN_KEY) || sessionStorage.getItem(AUTH_TOKEN_KEY);
+    if (!raw || !raw.trim() || raw === 'undefined' || raw === 'null') {
+      return null;
+    }
+    return raw.trim();
   } catch {
     return null;
   }
@@ -175,7 +179,13 @@ export async function apiClient<T>(endpoint: string, options: RequestOptions = {
         errorMessage = bodyData.slice(0, 200);
       }
 
-      if (response.status === 401) {
+      const isPublicEndpoint =
+        endpoint.includes('/auth/login') ||
+        endpoint.includes('/auth/oauth') ||
+        endpoint.includes('/health') ||
+        endpoint.includes('/ready');
+
+      if (response.status === 401 && !isPublicEndpoint) {
         clearStoredToken();
         if (unauthorizedListener) {
           try {

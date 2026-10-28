@@ -14,15 +14,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.github_client import GitHubAPIClient
 from app.core.logging import logger
 from app.db.base import _utcnow
-from app.core.github_client import GitHubAPIClient
 from app.models.evidence import Evidence as StoredEvidence
 from app.models.evidence import EvidenceKind
 from app.models.fix_proposal import FixProposal as StoredFixProposal
@@ -50,7 +49,6 @@ from orchestrator.sandbox.docker import (
     is_docker_available,
 )
 from orchestrator.sandbox.models import VerificationCommand, VerificationStatus
-
 
 
 def _canonical_value(val: Any) -> str:
@@ -655,7 +653,7 @@ class InvestigationService:
         if not repo_coords:
             stmt = select(Repository).where(
                 Repository.project_id == project.id,
-                Repository.is_active == True,
+                Repository.is_active.is_(True),
             )
             active_repos = list((await db.execute(stmt)).scalars().all())
             if len(active_repos) == 1:

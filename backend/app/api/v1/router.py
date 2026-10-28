@@ -15,8 +15,8 @@ from app.core.rate_limit import enforce_tenant_rate_limit
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(health_router)
 v1_router.include_router(ready_router)
+v1_router.include_router(auth_router)
 tenant_quota = [Depends(enforce_tenant_rate_limit)]
-v1_router.include_router(auth_router, dependencies=tenant_quota)
 v1_router.include_router(users_router, dependencies=tenant_quota)
 v1_router.include_router(projects_router, dependencies=tenant_quota)
 v1_router.include_router(github_router)

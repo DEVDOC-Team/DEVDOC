@@ -172,12 +172,14 @@ def test_es256_expired_token():
     token = make_test_es256_token(exp_offset_seconds=-300)  # expired 5m ago
     jwks_client = get_jwks_client(TEST_JWKS_URL)
 
-    with patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD):
-        with pytest.raises(HTTPException) as exc_info:
-            verify_and_decode_jwt(
-                token,
-                settings_override=TEST_ES256_SETTINGS,
-            )
+    with (
+        patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        verify_and_decode_jwt(
+            token,
+            settings_override=TEST_ES256_SETTINGS,
+        )
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
     assert "Token has expired" in exc_info.value.detail
@@ -191,12 +193,14 @@ def test_es256_wrong_signing_key_signature_mismatch():
     )
     jwks_client = get_jwks_client(TEST_JWKS_URL)
 
-    with patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD):
-        with pytest.raises(HTTPException) as exc_info:
-            verify_and_decode_jwt(
-                token,
-                settings_override=TEST_ES256_SETTINGS,
-            )
+    with (
+        patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        verify_and_decode_jwt(
+            token,
+            settings_override=TEST_ES256_SETTINGS,
+        )
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
     assert "Invalid token signature" in exc_info.value.detail
@@ -207,12 +211,14 @@ def test_es256_unknown_kid_rejected():
     token = make_test_es256_token(kid="unknown-kid-999")
     jwks_client = get_jwks_client(TEST_JWKS_URL)
 
-    with patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD):
-        with pytest.raises(HTTPException) as exc_info:
-            verify_and_decode_jwt(
-                token,
-                settings_override=TEST_ES256_SETTINGS,
-            )
+    with (
+        patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        verify_and_decode_jwt(
+            token,
+            settings_override=TEST_ES256_SETTINGS,
+        )
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
     assert "Unable to verify token against JWKS" in exc_info.value.detail
@@ -255,12 +261,14 @@ def test_es256_wrong_issuer_rejected():
     token = make_test_es256_token(issuer="https://attacker.supabase.co/auth/v1")
     jwks_client = get_jwks_client(TEST_JWKS_URL)
 
-    with patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD):
-        with pytest.raises(HTTPException) as exc_info:
-            verify_and_decode_jwt(
-                token,
-                settings_override=TEST_ES256_SETTINGS,
-            )
+    with (
+        patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        verify_and_decode_jwt(
+            token,
+            settings_override=TEST_ES256_SETTINGS,
+        )
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
     assert "Invalid token issuer" in exc_info.value.detail
@@ -294,12 +302,14 @@ def test_es256_wrong_audience_rejected():
     token = make_test_es256_token(audience="unauthorized-service")
     jwks_client = get_jwks_client(TEST_JWKS_URL)
 
-    with patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD):
-        with pytest.raises(HTTPException) as exc_info:
-            verify_and_decode_jwt(
-                token,
-                settings_override=TEST_ES256_SETTINGS,
-            )
+    with (
+        patch.object(jwks_client, "fetch_data", return_value=MOCK_JWKS_PAYLOAD),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        verify_and_decode_jwt(
+            token,
+            settings_override=TEST_ES256_SETTINGS,
+        )
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
     assert "Invalid token audience" in exc_info.value.detail
@@ -310,16 +320,18 @@ def test_es256_jwks_unavailable_fails_closed():
     token = make_test_es256_token()
     jwks_client = get_jwks_client(TEST_JWKS_URL)
 
-    with patch.object(
-        jwks_client,
-        "fetch_data",
-        side_effect=PyJWKClientConnectionError("Connection timed out"),
+    with (
+        patch.object(
+            jwks_client,
+            "fetch_data",
+            side_effect=PyJWKClientConnectionError("Connection timed out"),
+        ),
+        pytest.raises(HTTPException) as exc_info,
     ):
-        with pytest.raises(HTTPException) as exc_info:
-            verify_and_decode_jwt(
-                token,
-                settings_override=TEST_ES256_SETTINGS,
-            )
+        verify_and_decode_jwt(
+            token,
+            settings_override=TEST_ES256_SETTINGS,
+        )
 
     assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     assert "temporarily unavailable" in exc_info.value.detail
@@ -351,7 +363,6 @@ async def test_es256_fastapi_auth_me_end_to_end():
 
     test_user_id = str(uuid.uuid4())
     token = make_test_es256_token(sub=test_user_id, email="es256_commander@devdoc.ai")
-    jwks_client = get_jwks_client(TEST_JWKS_URL)
 
     with patch("app.dependencies.verify_and_decode_jwt") as mock_verify:
         mock_verify.return_value = {

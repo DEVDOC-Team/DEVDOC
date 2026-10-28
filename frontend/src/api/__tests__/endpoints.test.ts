@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getMyProfile, syncProfile, checkHealth, checkReadiness, verifyProjectAccess } from '../auth';
+import {
+  getMyProfile,
+  syncProfile,
+  checkHealth,
+  checkReadiness,
+  verifyProjectAccess,
+  loginWithPassword,
+  getOAuthAuthorizeUrl,
+  exchangeOAuthCode,
+  listOAuthProviders,
+} from '../auth';
 import {
   listProjects,
   getProject,
@@ -17,6 +27,110 @@ describe('Auth & Projects API Service Functions', () => {
   });
 
   describe('Auth Service', () => {
+    it('calls loginWithPassword on /api/v1/auth/login', async () => {
+      const mockLoginResponse = {
+        access_token: 'mock-access-token',
+        token_type: 'bearer',
+        expires_in: 3600,
+        user: { id: 'u-1', email: 'engineer@devdoc.ai' },
+      };
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => mockLoginResponse,
+      } as Response);
+
+      const res = await loginWithPassword({ email: 'engineer@devdoc.ai', password: 'secretpassword' });
+      expect(res.access_token).toBe('mock-access-token');
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/auth/login'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ email: 'engineer@devdoc.ai', password: 'secretpassword' }),
+        })
+      );
+    });
+
+    it('calls getOAuthAuthorizeUrl on /api/v1/auth/oauth/google/url', async () => {
+      const mockOAuthUrl = {
+        provider: 'google',
+        authorization_url: 'https://test.supabase.co/auth/v1/authorize?provider=google',
+        redirect_to: 'http://localhost:5173/',
+      };
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => mockOAuthUrl,
+      } as Response);
+
+      const res = await getOAuthAuthorizeUrl('google', 'http://localhost:5173/');
+      expect(res.provider).toBe('google');
+      expect(res.authorization_url).toContain('provider=google');
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/auth/oauth/google/url'),
+        expect.objectContaining({ method: 'GET' })
+      );
+    });
+
+    it('calls getOAuthAuthorizeUrl on /api/v1/auth/oauth/github/url', async () => {
+      const mockOAuthUrl = {
+        provider: 'github',
+        authorization_url: 'https://test.supabase.co/auth/v1/authorize?provider=github',
+        redirect_to: 'http://localhost:5173/',
+      };
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => mockOAuthUrl,
+      } as Response);
+
+      const res = await getOAuthAuthorizeUrl('github', 'http://localhost:5173/');
+      expect(res.provider).toBe('github');
+      expect(res.authorization_url).toContain('provider=github');
+    });
+
+    it('calls exchangeOAuthCode on /api/v1/auth/oauth/exchange', async () => {
+      const mockExchange = {
+        access_token: 'pkce-token-abc',
+        token_type: 'bearer',
+        expires_in: 3600,
+      };
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => mockExchange,
+      } as Response);
+
+      const res = await exchangeOAuthCode({ auth_code: 'code-123', code_verifier: 'verifier-456' });
+      expect(res.access_token).toBe('pkce-token-abc');
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/auth/oauth/exchange'),
+        expect.objectContaining({ method: 'POST' })
+      );
+    });
+
+    it('calls listOAuthProviders on /api/v1/auth/oauth/providers', async () => {
+      const mockProviders = [
+        { id: 'google', name: 'Google', enabled: true },
+        { id: 'github', name: 'GitHub', enabled: true },
+      ];
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => mockProviders,
+      } as Response);
+
+      const res = await listOAuthProviders();
+      expect(res).toHaveLength(2);
+      expect(res[0].id).toBe('google');
+      expect(res[1].id).toBe('github');
+    });
+
     it('calls getMyProfile on /api/v1/auth/me', async () => {
       const mockUser = { id: 'u-1', email: 'dev@devdoc.ai', is_active: true };
       globalThis.fetch = vi.fn().mockResolvedValue({

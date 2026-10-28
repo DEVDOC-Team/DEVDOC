@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from typing import Any
-from fastapi import APIRouter, Depends, Query, Request
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.github_client import GitHubAPIClient
+from app.core.logging import logger
 from app.core.rate_limit import enforce_tenant_rate_limit
 from app.dependencies import get_authenticated_db, get_db, require_active_user
 from app.models.user import User
@@ -40,10 +42,13 @@ async def initiate_github_connect(
 
 
 @router.get("/callback", response_model=GitHubConnectionResponse)
+@router.get("/callback/", response_model=GitHubConnectionResponse, include_in_schema=False)
 async def github_oauth_callback(
     request: Request,
-    code: str = Query(..., description="Temporary OAuth authorization code"),
     state: str = Query(..., description="Cryptographically signed CSRF state token"),
+    code: str | None = Query(default=None, description="Temporary OAuth authorization code"),
+    error: str | None = Query(default=None, description="OAuth error code if authorization failed"),
+    error_description: str | None = Query(default=None, description="OAuth error description"),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Handle GitHub OAuth authorization callback.
@@ -52,6 +57,44 @@ async def github_oauth_callback(
     retrieves the remote GitHub user profile, and securely stores the credential.
     Never exposes credentials in the response.
     """
+    accept_header = request.headers.get("accept", "")
+
+    # Handle user cancellation or GitHub OAuth error response
+    if error:
+        logger.warning("GitHub OAuth callback error: %s (%s)", error, error_description)
+        if "text/html" in accept_header:
+            html_content = f"""<!DOCTYPE html>
+<html>
+<head><title>GitHub Connection Cancelled - DEVDOC</title></head>
+<body style="background:#0b0f19;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+<div style="text-align:center;max-width:420px;padding:32px;background:#131c31;border-radius:12px;border:1px solid #1e293b;box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+  <div style="font-size:36px;margin-bottom:12px;">⚠️</div>
+  <h2 style="margin:0 0 8px 0;font-size:18px;color:#f8fafc;">GitHub Authorization Cancelled</h2>
+  <p style="margin:0;font-size:13px;color:#94a3b8;">{error_description or error}</p>
+  <script>
+    if (window.opener) {{
+      window.opener.postMessage({{ type: 'DEVDOC_GITHUB_CANCELLED' }}, '*');
+      window.close();
+    }} else {{
+      window.location.href = 'http://localhost:5173/?github_cancelled=true';
+    }}
+  </script>
+</div>
+</body>
+</html>"""
+            return HTMLResponse(content=html_content, status_code=200)
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"GitHub OAuth error: {error_description or error}",
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing OAuth authorization code in callback",
+        )
+
     user_id = GitHubIntegrationService.verify_oauth_state(state)
 
     token_data = await GitHubIntegrationService.exchange_code_for_token(code)
@@ -66,8 +109,7 @@ async def github_oauth_callback(
         github_user=gh_user,
     )
 
-    accept_header = request.headers.get("accept", "")
-    if accept_header.startswith("text/html"):
+    if "text/html" in accept_header:
         html_content = """<!DOCTYPE html>
 <html>
 <head><title>GitHub Connected - DEVDOC</title></head>

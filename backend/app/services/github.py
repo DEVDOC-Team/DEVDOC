@@ -146,7 +146,9 @@ class GitHubIntegrationService:
     @classmethod
     def get_authorization_url(cls, user_id: uuid.UUID) -> tuple[str, str]:
         """Construct the GitHub OAuth authorization URL with CSRF state token."""
-        if not settings.github_client_id:
+        client_id = settings.github_client_id.strip().strip("'\"").strip()
+        redirect_uri = settings.github_oauth_redirect_uri.strip().strip("'\"").strip()
+        if not client_id:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="GitHub OAuth is not configured: missing client ID",
@@ -154,8 +156,8 @@ class GitHubIntegrationService:
 
         state = cls.generate_oauth_state(user_id)
         params = {
-            "client_id": settings.github_client_id,
-            "redirect_uri": settings.github_oauth_redirect_uri,
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
             "scope": "repo,read:user",
             "state": state,
             "allow_signup": "true",
@@ -169,18 +171,27 @@ class GitHubIntegrationService:
         http_client: httpx.AsyncClient | None = None,
     ) -> dict[str, Any]:
         """Exchange the temporary OAuth code for a GitHub access token."""
-        client_secret = settings.github_client_secret.get_secret_value()
-        if not settings.github_client_id or not client_secret:
+        client_id = settings.github_client_id.strip().strip("'\"").strip()
+        client_secret = settings.github_client_secret.get_secret_value().strip().strip("'\"").strip()
+        redirect_uri = settings.github_oauth_redirect_uri.strip().strip("'\"").strip()
+        clean_code = (code or "").strip()
+
+        if not client_id or not client_secret:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="GitHub OAuth is not configured: missing client credentials",
             )
+        if not clean_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing OAuth authorization code in callback",
+            )
 
         payload = {
-            "client_id": settings.github_client_id,
+            "client_id": client_id,
             "client_secret": client_secret,
-            "code": code,
-            "redirect_uri": settings.github_oauth_redirect_uri,
+            "code": clean_code,
+            "redirect_uri": redirect_uri,
         }
         headers = {"Accept": "application/json"}
 

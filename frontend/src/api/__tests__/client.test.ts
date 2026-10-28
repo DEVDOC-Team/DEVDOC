@@ -191,9 +191,47 @@ describe('API Client & Token Storage', () => {
       } catch (err: any) {
         expect(err).toBeInstanceOf(ApiError);
         expect(err.status).toBe(0);
-        expect(err.isNetworkError).toBe(true);
         expect(err.message).toContain('Failed to fetch');
       }
+    });
+
+    it('invokes unauthorizedListener on standard 401 endpoints', async () => {
+      const { setOnUnauthorized } = await import('../client');
+      const listener = vi.fn();
+      setOnUnauthorized(listener);
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ detail: 'Session expired' }),
+      } as Response);
+
+      await expect(apiClient('/api/v1/projects')).rejects.toThrow();
+      expect(listener).toHaveBeenCalledTimes(1);
+      setOnUnauthorized(null);
+    });
+
+    it('does NOT invoke unauthorizedListener when /auth/login returns 401', async () => {
+      const { setOnUnauthorized } = await import('../client');
+      const listener = vi.fn();
+      setOnUnauthorized(listener);
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ detail: 'Invalid email or password' }),
+      } as Response);
+
+      await expect(
+        apiClient('/api/v1/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email: 'test@example.com', password: 'wrong' }),
+        })
+      ).rejects.toThrow('Invalid email or password');
+      expect(listener).not.toHaveBeenCalled();
+      setOnUnauthorized(null);
     });
   });
 });

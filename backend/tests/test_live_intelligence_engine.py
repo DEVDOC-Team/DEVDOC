@@ -312,13 +312,12 @@ async def test_live_docker_sandbox_isolated_execution():
                 "    print('NETWORK_BLOCKED')\n",
                 encoding="utf-8",
             )
-            # Tar extract updated file
-            tar_stream = asyncio.create_task(provider.execute(
+            # Verify command execution in container
+            await provider.execute(
                 handle,
-                VerificationCommand(step_index=1, argv=["python", "net.py"]),
+                VerificationCommand(step_index=1, argv=["python", "check.py"]),
                 SandboxLimits(),
-            ))
-            # net.py is not yet in container (workspace is immutable snapshot at create)
+            )
         finally:
             await provider.cleanup(handle)
 
@@ -388,7 +387,6 @@ async def test_live_nebius_nemotron_inference():
 @pytest.mark.asyncio
 async def test_rca_service_validates_evidence_references():
     """Verify RootCauseAnalysisService strictly validates that referenced evidence IDs belong to the active evidence set."""
-    llm_service = AsyncMock()
     valid_ev_id = uuid.uuid4()
     hallucinated_ev_id = uuid.uuid4()
 

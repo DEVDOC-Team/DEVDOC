@@ -1,5 +1,16 @@
 import { apiClient, type RequestOptions } from './client';
-import type { AuthSyncResponse, HealthResponse, LoginRequest, LoginResponse, ReadinessResponse, User } from './types';
+import type {
+  AuthSyncResponse,
+  HealthResponse,
+  LoginRequest,
+  LoginResponse,
+  OAuthAuthorizeUrlResponse,
+  OAuthExchangeRequest,
+  OAuthProvider,
+  OAuthProviderInfo,
+  ReadinessResponse,
+  User,
+} from './types';
 
 /**
  * Sign in using email and password against the backend Supabase Auth endpoint.
@@ -12,6 +23,57 @@ export async function loginWithPassword(
   return apiClient<LoginResponse>('/api/v1/auth/login', {
     method: 'POST',
     body: JSON.stringify(credentials),
+    ...options,
+  });
+}
+
+/**
+ * Request an authorization URL for Google or GitHub OAuth from backend.
+ * Endpoint: GET /api/v1/auth/oauth/{provider}/url
+ */
+export async function getOAuthAuthorizeUrl(
+  provider: OAuthProvider,
+  redirectTo?: string,
+  options?: RequestOptions
+): Promise<OAuthAuthorizeUrlResponse> {
+  const query = new URLSearchParams();
+  if (redirectTo) {
+    query.set('redirect_to', redirectTo);
+  }
+  const qs = query.toString();
+  return apiClient<OAuthAuthorizeUrlResponse>(
+    `/api/v1/auth/oauth/${provider}/url${qs ? `?${qs}` : ''}`,
+    {
+      method: 'GET',
+      ...options,
+    }
+  );
+}
+
+/**
+ * Exchange an OAuth authorization code or PKCE token with Supabase Auth via the backend.
+ * Endpoint: POST /api/v1/auth/oauth/exchange
+ */
+export async function exchangeOAuthCode(
+  payload: OAuthExchangeRequest,
+  options?: RequestOptions
+): Promise<LoginResponse> {
+  return apiClient<LoginResponse>('/api/v1/auth/oauth/exchange', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    ...options,
+  });
+}
+
+/**
+ * Fetch supported OAuth providers and configuration readiness.
+ * Endpoint: GET /api/v1/auth/oauth/providers
+ */
+export async function listOAuthProviders(
+  options?: RequestOptions
+): Promise<OAuthProviderInfo[]> {
+  return apiClient<OAuthProviderInfo[]>('/api/v1/auth/oauth/providers', {
+    method: 'GET',
     ...options,
   });
 }
