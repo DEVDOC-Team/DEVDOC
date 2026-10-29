@@ -106,7 +106,7 @@ export const getApiBaseUrl = (): string => {
   const configuredUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
   const pageLocation = typeof window !== 'undefined' ? window.location : null;
   const fallbackUrl = import.meta.env.DEV ? 'http://127.0.0.1:8000' : pageLocation?.origin;
-  const apiBaseUrl = configuredUrl || fallbackUrl;
+  let apiBaseUrl = configuredUrl || fallbackUrl;
 
   if (!apiBaseUrl) {
     throw new Error('Set VITE_API_BASE_URL to the FastAPI backend URL for this deployment.');
