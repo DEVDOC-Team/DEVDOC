@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
 from typing import Annotated, Any, Literal
@@ -100,6 +101,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_runtime_security_defaults(self) -> Settings:
+        # Render assigns each web service an exact public hostname. Trust that
+        # hostname in addition to any explicitly configured hosts so the
+        # TrustedHostMiddleware accepts Render's forwarded Host header without
+        # opening the allowlist to every onrender.com subdomain.
+        render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip().lower().rstrip(".")
+        if render_hostname and render_hostname not in self.trusted_hosts:
+            self.trusted_hosts = [*self.trusted_hosts, render_hostname]
+
         if self.is_production and not self.trusted_hosts:
             raise ValueError("TRUSTED_HOSTS must be configured when ENVIRONMENT=production")
         if self.is_production and not self.rate_limit_enabled:
