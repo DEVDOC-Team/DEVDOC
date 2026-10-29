@@ -12,6 +12,28 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 _BACKEND_ENV = _BACKEND_DIR / ".env"
 
 
+def normalize_async_database_url(url: str) -> str:
+    """Ensure PostgreSQL URLs use the asyncpg driver used by this service.
+
+    Supabase's dashboard supplies standard ``postgresql://`` URLs. SQLAlchemy's
+    async engine requires an async driver, so normalize common PostgreSQL URL
+    schemes before passing them to ``create_async_engine`` or Alembic.
+    """
+    value = url.strip()
+    scheme, separator, remainder = value.partition("://")
+    if not separator:
+        return value
+
+    if scheme.lower() in {
+        "postgres",
+        "postgresql",
+        "postgresql+psycopg",
+        "postgresql+psycopg2",
+    }:
+        return f"postgresql+asyncpg://{remainder}"
+    return value
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(_BACKEND_ENV, ".env") if _BACKEND_ENV.is_file() else ".env",
@@ -125,9 +147,9 @@ class Settings(BaseSettings):
     # DATABASE_URL      — async URL used by SQLAlchemy at runtime
     #                     format: postgresql+asyncpg://user:pass@host:port/db
     #
-    # DIRECT_DATABASE_URL — non-pooled URL for Alembic migrations
-    #                     format: postgresql+psycopg2://user:pass@host:port/db
-    #                     (or postgresql+asyncpg:// for async migrations)
+    # DIRECT_DATABASE_URL — URL used by Alembic migrations. This project uses
+    #                     asyncpg for database connections; standard Supabase
+    #                     postgresql:// URLs are normalized to asyncpg.
     # ------------------------------------------------------------------ #
     database_url: str = Field(default="")
     direct_database_url: str = Field(default="")

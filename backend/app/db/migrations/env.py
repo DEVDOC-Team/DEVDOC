@@ -4,14 +4,13 @@ Supports both offline (SQL script generation) and online (live DB) modes.
 
 Database URL strategy
 ---------------------
-* Online migrations use ``DIRECT_DATABASE_URL`` from settings.
-  This must be a synchronous driver URL (e.g. postgresql+psycopg2://…)
-  because Alembic's built-in migration runner is synchronous.
-* The async runtime URL (postgresql+asyncpg://…) used by FastAPI is
-  kept separate to avoid driver conflicts.
+* Online migrations prefer ``DIRECT_DATABASE_URL`` and use asyncpg for
+  PostgreSQL connections. Standard Supabase ``postgresql://`` URLs are
+  normalized to the async driver scheme before connecting.
+* Alembic's synchronous migration operations run through SQLAlchemy's async
+  connection bridge, using the same asyncpg driver as the FastAPI runtime.
 
-Tables are NEVER created automatically on application startup.
-Run ``alembic upgrade head`` explicitly in your deployment pipeline.
+Migrations must be applied with ``alembic upgrade head`` before serving traffic.
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ if str(_backend_root) not in sys.path:
 # Import settings and ALL models so Alembic can detect schema changes.
 # app.models.__init__ re-exports every model class and Base.
 # ---------------------------------------------------------------------------
-from app.core.config import settings  # noqa: E402
+from app.core.config import normalize_async_database_url, settings  # noqa: E402
 from app.models import Base  # noqa: E402  # registers all table metadata
 
 # ---------------------------------------------------------------------------
@@ -55,19 +54,19 @@ def _get_url(offline: bool = False) -> str:
     """Return the database URL for migrations.
 
     Precedence:
-    1. DIRECT_DATABASE_URL from settings (psycopg2/psycopg driver)
-    2. DATABASE_URL from settings (asyncpg or psycopg2)
+    1. DIRECT_DATABASE_URL from settings (normalized to asyncpg for PostgreSQL)
+    2. DATABASE_URL from settings (normalized to asyncpg for PostgreSQL)
     3. Offline fallback to postgresql:// for DDL SQL rendering without credentials.
 
     Never falls back to the placeholder in alembic.ini.
     """
     direct_url = settings.direct_database_url
     if direct_url:
-        return direct_url
+        return normalize_async_database_url(direct_url)
 
     url = settings.database_url
     if url:
-        return url
+        return normalize_async_database_url(url)
 
     if offline:
         return "postgresql://postgres:postgres@localhost:5432/postgres"

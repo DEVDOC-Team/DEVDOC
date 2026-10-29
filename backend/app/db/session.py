@@ -10,9 +10,9 @@ Usage in FastAPI route handlers
 
 Connection strategy
 -------------------
-* Runtime (FastAPI)  — asyncpg via create_async_engine + AsyncSession
-* Migrations (Alembic) — synchronous psycopg2 via DIRECT_DATABASE_URL
-* Unit tests — aiosqlite in-memory via TEST_DATABASE_URL override
+* Runtime (FastAPI) -- asyncpg via create_async_engine and AsyncSession
+* Migrations (Alembic) -- asyncpg via DIRECT_DATABASE_URL
+* Unit tests -- aiosqlite in-memory via TEST_DATABASE_URL override
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import settings
+from app.core.config import normalize_async_database_url, settings
 from app.core.logging import logger
 
 # ---------------------------------------------------------------------------
@@ -38,7 +38,8 @@ _engine_kwargs: dict = {
 }
 
 if settings.database_configured:
-    if "sqlite" not in settings.database_url:
+    database_url = normalize_async_database_url(settings.database_url)
+    if "sqlite" not in database_url:
         _engine_kwargs.update(
             {
                 "pool_size": settings.db_pool_size,
@@ -48,7 +49,7 @@ if settings.database_configured:
                 "pool_pre_ping": True,
             }
         )
-    engine = create_async_engine(settings.database_url, **_engine_kwargs)
+    engine = create_async_engine(database_url, **_engine_kwargs)
     logger.info("Database engine created")
 else:
     # Fallback to in-memory SQLite so FastAPI starts without a real DB URL.
@@ -73,11 +74,12 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 if settings.database_replica_url:
+    replica_url = normalize_async_database_url(settings.database_replica_url)
     _replica_kwargs = dict(_engine_kwargs)
-    if "sqlite" in settings.database_replica_url:
+    if "sqlite" in replica_url:
         for k in ("pool_size", "max_overflow", "pool_timeout", "pool_recycle", "pool_pre_ping"):
             _replica_kwargs.pop(k, None)
-    replica_engine = create_async_engine(settings.database_replica_url, **_replica_kwargs)
+    replica_engine = create_async_engine(replica_url, **_replica_kwargs)
     AsyncReplicaSessionLocal = async_sessionmaker(
         bind=replica_engine,
         class_=AsyncSession,
