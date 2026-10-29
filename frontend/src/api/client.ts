@@ -129,9 +129,16 @@ export const getApiBaseUrl = (): string => {
     }
 
     if (isLoopbackHost(apiUrl.hostname) && !isLoopbackHost(pageLocation.hostname)) {
-      throw new Error(
-        'VITE_API_BASE_URL points to localhost, which is only reachable from the computer running this browser. Set it to the FastAPI URL reachable by this device and allow this frontend origin in backend CORS.'
-      );
+      if (import.meta.env.PROD) {
+        // A local URL copied into Vercel settings cannot be reached from a
+        // visitor's browser. Use the same-origin API rewrite configured for
+        // the Vercel deployment instead.
+        apiBaseUrl = pageLocation.origin;
+      } else {
+        throw new Error(
+          'VITE_API_BASE_URL points to localhost, which is only reachable from the computer running this browser. Set it to the FastAPI URL reachable by this device and allow this frontend origin in backend CORS.'
+        );
+      }
     }
   }
 
