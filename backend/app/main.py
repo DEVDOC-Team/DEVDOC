@@ -117,7 +117,7 @@ async def prometheus_metrics() -> Response:
 
 
 @app.get("/", tags=["Root"], summary="API root")
-async def root() -> dict[str, str]:
+async def root() -> dict[str, str | None]:
     """Return a friendly landing payload for the API root."""
     return {
         "service": settings.app_name,
