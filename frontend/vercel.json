@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://devdoc-mse0.onrender.com/api/:path*"
+    }
+  ]
+}
