@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import re
 import urllib.parse
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.logging import logger
 from app.core.rate_limit import enforce_tenant_rate_limit
+from app.core.security import extract_bearer_token
 from app.db.session import get_db
 from app.dependencies import (
     get_token_payload,
@@ -100,6 +102,7 @@ async def list_oauth_providers() -> list[OAuthProviderInfo]:
 async def get_oauth_authorization_url(
     provider: str,
     redirect_to: str | None = None,
+    code_challenge: str | None = None,
 ) -> OAuthAuthorizeUrlResponse:
     """Generate a validated Supabase GoTrue OAuth authorization URL for Google or GitHub."""
     provider_clean = provider.strip().lower()
@@ -122,6 +125,14 @@ async def get_oauth_authorization_url(
         "provider": provider_clean,
         "redirect_to": validated_redirect,
     }
+    if code_challenge is not None:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{43}", code_challenge):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid OAuth PKCE code challenge",
+            )
+        params["code_challenge"] = code_challenge
+        params["code_challenge_method"] = "s256"
     encoded_params = urllib.parse.urlencode(params)
     auth_url = f"{supabase_url.rstrip('/')}/auth/v1/authorize?{encoded_params}"
 
@@ -354,11 +365,13 @@ async def get_my_profile(
 @router.post("/sync", response_model=AuthSyncResponse)
 async def sync_profile(
     token_payload: dict = Depends(get_token_payload),
+    authorization: str | None = Header(None, alias="Authorization"),
     db: AsyncSession = Depends(get_db),
     _: None = Depends(enforce_tenant_rate_limit),
 ) -> AuthSyncResponse:
     """Explicitly synchronize the authenticated Supabase user profile with public.users."""
-    user = await get_or_sync_user_profile(db, token_payload)
+    access_token = extract_bearer_token(authorization)
+    user = await get_or_sync_user_profile(db, token_payload, access_token)
     return AuthSyncResponse(
         success=True,
         message="User profile synchronized successfully",

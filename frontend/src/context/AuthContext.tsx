@@ -4,10 +4,12 @@ import { getMyProfile, loginWithPassword, syncProfile, getOAuthAuthorizeUrl, exc
 import type { User, OAuthProvider } from '../api/types';
 
 export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated';
+export type SignInProvider = OAuthProvider | 'email';
 
 export interface AuthContextValue {
   user: User | null;
   token: string | null;
+  authProvider: SignInProvider | null;
   status: AuthStatus;
   error: string | null;
   isAuthResolving: boolean;
@@ -26,6 +28,82 @@ interface OAuthCallbackData {
   errorDescription?: string;
   errorCode?: string;
 }
+
+const OAUTH_CODE_VERIFIER_KEY = 'devdoc_oauth_code_verifier';
+const AUTH_PROVIDER_KEY = 'devdoc_auth_provider';
+
+const normalizeAuthProvider = (provider: unknown): SignInProvider | null => {
+  if (typeof provider !== 'string') return null;
+  const normalized = provider.trim().toLowerCase();
+  return normalized === 'google' || normalized === 'github' || normalized === 'email'
+    ? normalized
+    : null;
+};
+
+const getAuthProviderFromToken = (accessToken: string | null): SignInProvider | null => {
+  if (!accessToken || typeof window === 'undefined') return null;
+
+  try {
+    const payloadPart = accessToken.split('.')[1];
+    if (!payloadPart) return null;
+    const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = window.atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const payload = JSON.parse(new TextDecoder().decode(bytes));
+    return normalizeAuthProvider(payload?.app_metadata?.provider ?? payload?.provider);
+  } catch {
+    return null;
+  }
+};
+
+const getStoredAuthProvider = (): SignInProvider | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return normalizeAuthProvider(window.sessionStorage.getItem(AUTH_PROVIDER_KEY));
+  } catch {
+    return null;
+  }
+};
+
+const storeAuthProvider = (provider: SignInProvider | null): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (provider) window.sessionStorage.setItem(AUTH_PROVIDER_KEY, provider);
+    else window.sessionStorage.removeItem(AUTH_PROVIDER_KEY);
+  } catch {
+    // Provider display is best-effort when browser storage is unavailable.
+  }
+};
+
+const encodeBase64Url = (bytes: Uint8Array): string => {
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return window
+    .btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+};
+
+const createOAuthPkcePair = async (): Promise<{ verifier: string; challenge: string }> => {
+  if (!window.crypto?.subtle || !window.crypto?.getRandomValues) {
+    throw new Error('Secure browser cryptography is required for sign-in.');
+  }
+
+  const randomBytes = window.crypto.getRandomValues(new Uint8Array(32));
+  const verifier = encodeBase64Url(randomBytes);
+  const digest = await window.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(verifier)
+  );
+
+  return {
+    verifier,
+    challenge: encodeBase64Url(new Uint8Array(digest)),
+  };
+};
 
 const parseOAuthCallback = (): OAuthCallbackData | null => {
   if (typeof window === 'undefined') return null;
@@ -94,6 +172,9 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(getStoredToken());
   const [user, setUser] = useState<User | null>(null);
+  const [authProvider, setAuthProvider] = useState<SignInProvider | null>(
+    () => getStoredAuthProvider() ?? getAuthProviderFromToken(getStoredToken()),
+  );
   const [status, setStatus] = useState<AuthStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [isAuthResolving, setIsAuthResolving] = useState<boolean>(true);
@@ -105,8 +186,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (typeof window !== 'undefined' && window.sessionStorage) {
       sessionStorage.removeItem('devdoc_persist_session');
     }
+    storeAuthProvider(null);
     setToken(null);
     setUser(null);
+    setAuthProvider(null);
     setStatus('unauthenticated');
     if (reason) {
       setError(reason);
@@ -117,6 +200,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const activeToken = getStoredToken();
     if (!activeToken) {
       setUser(null);
+      setAuthProvider(null);
       setStatus('unauthenticated');
       setIsAuthResolving(false);
       return;
@@ -127,6 +211,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const profile = await getMyProfile({ token: activeToken });
       setUser(profile);
       setToken(activeToken);
+      setAuthProvider(
+        getStoredAuthProvider() ??
+          getAuthProviderFromToken(activeToken) ??
+          normalizeAuthProvider(profile.provider),
+      );
       setStatus('authenticated');
       setError(null);
     } catch (err: any) {
@@ -167,6 +256,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         if (callback.error) {
+          if (typeof window !== 'undefined' && window.sessionStorage) {
+            sessionStorage.removeItem(OAUTH_CODE_VERIFIER_KEY);
+          }
+          storeAuthProvider(null);
+          setAuthProvider(null);
           const safeMessage = sanitizeOAuthError(callback.error, callback.errorDescription);
           setError(safeMessage);
           setStatus('unauthenticated');
@@ -177,6 +271,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (callback.accessToken) {
           setStatus('loading');
           try {
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+              sessionStorage.removeItem(OAUTH_CODE_VERIFIER_KEY);
+            }
             const shouldPersist =
               typeof window !== 'undefined' &&
               window.sessionStorage &&
@@ -186,6 +283,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             const rawToken = callback.accessToken;
+            const requestedProvider = getStoredAuthProvider();
             setStoredToken(rawToken, shouldPersist);
             setToken(rawToken);
 
@@ -197,6 +295,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             setUser(profile);
+            const resolvedProvider =
+              requestedProvider ??
+              getAuthProviderFromToken(rawToken) ??
+              normalizeAuthProvider(profile.provider);
+            storeAuthProvider(resolvedProvider);
+            setAuthProvider(resolvedProvider);
             setStatus('authenticated');
             setError(null);
             setIsAuthResolving(false);
@@ -220,8 +324,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               sessionStorage.removeItem('devdoc_persist_session');
             }
 
-            const exchangeResp = await exchangeOAuthCode({ auth_code: callback.code });
+            const codeVerifier =
+              typeof window !== 'undefined' && window.sessionStorage
+                ? sessionStorage.getItem(OAUTH_CODE_VERIFIER_KEY)
+                : null;
+            if (!codeVerifier) {
+              throw new Error('OAuth verification data is missing. Please restart sign-in.');
+            }
+
+            const exchangeResp = await exchangeOAuthCode({
+              auth_code: callback.code,
+              code_verifier: codeVerifier,
+            });
+            sessionStorage.removeItem(OAUTH_CODE_VERIFIER_KEY);
             const exchangedToken = exchangeResp.access_token;
+            const requestedProvider = getStoredAuthProvider();
             setStoredToken(exchangedToken, shouldPersist);
             setToken(exchangedToken);
 
@@ -233,11 +350,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             setUser(profile);
+            const resolvedProvider =
+              requestedProvider ??
+              getAuthProviderFromToken(exchangedToken) ??
+              normalizeAuthProvider(profile.provider);
+            storeAuthProvider(resolvedProvider);
+            setAuthProvider(resolvedProvider);
             setStatus('authenticated');
             setError(null);
             setIsAuthResolving(false);
             return;
           } catch (err: any) {
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+              sessionStorage.removeItem(OAUTH_CODE_VERIFIER_KEY);
+            }
             setError(err.message || 'Failed to exchange OAuth authorization code');
             setStatus('unauthenticated');
             setIsAuthResolving(false);
@@ -289,6 +415,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setStoredToken(accessToken, persist);
         setToken(accessToken);
+        storeAuthProvider('email');
+        setAuthProvider('email');
 
         // Fetch verified user profile using the new Bearer token
         const profile = await getMyProfile({ token: accessToken });
@@ -311,6 +439,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         setError(msg);
+        storeAuthProvider(null);
+        setAuthProvider(null);
         setStatus('unauthenticated');
         return { success: false, error: msg };
       }
@@ -335,6 +465,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setStoredToken(cleanToken, persist);
         setToken(cleanToken);
         setUser(profile);
+        const resolvedProvider =
+          getAuthProviderFromToken(cleanToken) ?? normalizeAuthProvider(profile.provider);
+        storeAuthProvider(resolvedProvider);
+        setAuthProvider(resolvedProvider);
         setStatus('authenticated');
         setError(null);
         return { success: true };
@@ -366,12 +500,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
 
       try {
+        storeAuthProvider(provider);
+        setAuthProvider(provider);
         if (typeof window !== 'undefined' && window.sessionStorage) {
           sessionStorage.setItem('devdoc_persist_session', persist ? 'true' : 'false');
         }
 
         const redirectUri = typeof window !== 'undefined' ? `${window.location.origin}/` : 'http://localhost:5173/';
-        const res = await getOAuthAuthorizeUrl(provider, redirectUri);
+        const pkce = await createOAuthPkcePair();
+        sessionStorage.setItem(OAUTH_CODE_VERIFIER_KEY, pkce.verifier);
+
+        const res = await getOAuthAuthorizeUrl(provider, redirectUri, pkce.challenge);
         if (!res.authorization_url) {
           throw new Error(`Failed to obtain authorization URL for ${provider}`);
         }
@@ -381,6 +520,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return { success: true };
       } catch (err: any) {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          sessionStorage.removeItem(OAUTH_CODE_VERIFIER_KEY);
+          sessionStorage.removeItem('devdoc_persist_session');
+        }
+        storeAuthProvider(null);
+        setAuthProvider(null);
         let msg = `Unable to connect to ${provider} authentication`;
         if (err instanceof ApiError) {
           msg = err.message;
@@ -400,6 +545,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         token,
+        authProvider,
         status,
         error,
         isAuthResolving,

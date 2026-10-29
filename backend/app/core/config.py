@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
 
+    @field_validator("debug", mode="before")
+    @classmethod
+    def normalize_debug_mode(cls, value: Any) -> Any:
+        """Accept common environment labels without treating them as booleans."""
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"release", "production", "prod", "false", "0", "no", "off"}:
+                return False
+            if normalized in {"development", "dev", "debug", "true", "1", "yes", "on"}:
+                return True
+        return value
+
     # ------------------------------------------------------------------ #
     # HTTP security
     # ------------------------------------------------------------------ #
@@ -157,7 +169,7 @@ class Settings(BaseSettings):
     github_client_id: str = Field(default="")
     github_client_secret: SecretStr = Field(default=SecretStr(""))
     github_oauth_redirect_uri: str = Field(
-        default="http://localhost:8000/api/v1/github/callback"
+        default="http://127.0.0.1:8000/api/v1/github/callback"
     )
     github_api_base_url: str = Field(default="https://api.github.com")
 

@@ -330,6 +330,21 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setConnectedRepo(repo);
         return repo;
       } catch (err: any) {
+        // If the server saved the attachment but the response was lost, a retry
+        // may receive 409 because the repository is already attached. Confirm
+        // that state and treat the retry as successful.
+        if (err instanceof ApiError && err.status === 409) {
+          try {
+            const attachedRepo = await getProjectGitHubRepo(selectedProjectId);
+            if (attachedRepo.full_name.toLowerCase() === fullName.toLowerCase()) {
+              setConnectedRepo(attachedRepo);
+              return attachedRepo;
+            }
+          } catch {
+            // Preserve the original attach error if the current attachment
+            // cannot be confirmed.
+          }
+        }
         const msg = err instanceof ApiError ? err.message : err.message || 'Failed to attach repository';
         setError(msg);
         throw err;

@@ -78,7 +78,11 @@ class Deployment(UUIDMixin, TimestampMixin, Base):
     environment: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
 
     status: Mapped[DeploymentStatus] = mapped_column(
-        SAEnum(DeploymentStatus, name="deploymentstatus"),
+        SAEnum(
+            DeploymentStatus,
+            name="deploymentstatus",
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
         nullable=False,
         default=DeploymentStatus.PENDING,
         index=True,

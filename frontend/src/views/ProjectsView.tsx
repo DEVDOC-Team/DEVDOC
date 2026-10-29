@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useProjects } from '../context/ProjectContext';
 import { Panel } from '../components/ui/Panel';
 import { Badge } from '../components/ui/Badge';
@@ -79,12 +79,29 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
   // GitHub Connection state
   const [isConnectingGithub, setIsConnectingGithub] = useState(false);
   const [githubActionError, setGithubActionError] = useState<string | null>(null);
+  const githubPopupRef = useRef<Window | null>(null);
+
+  useEffect(() => {
+    const handleGitHubOAuthMessage = (event: MessageEvent) => {
+      if (event.source !== githubPopupRef.current || event.data?.type !== 'DEVDOC_GITHUB_ERROR') {
+        return;
+      }
+      setGithubActionError(
+        "We couldn't save your changes. Please check your connection and try again.",
+      );
+      setIsConnectingGithub(false);
+    };
+
+    window.addEventListener('message', handleGitHubOAuthMessage);
+    return () => window.removeEventListener('message', handleGitHubOAuthMessage);
+  }, []);
 
   // Repository Picker Modal state
   const [showRepoModal, setShowRepoModal] = useState(false);
   const [repoList, setRepoList] = useState<GitHubRepositoryInfo[]>([]);
   const [repoListLoading, setRepoListLoading] = useState(false);
   const [repoListError, setRepoListError] = useState<string | null>(null);
+  const [failedRepoAttach, setFailedRepoAttach] = useState<string | null>(null);
   const [repoSearch, setRepoSearch] = useState('');
   const [attachingRepo, setAttachingRepo] = useState<string | null>(null);
 
@@ -144,11 +161,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
         'devdoc_github_oauth',
         `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,status=no`
       );
+      githubPopupRef.current = popup;
 
       // Periodically check if popup closed
       const timer = setInterval(() => {
         if (!popup || popup.closed) {
           clearInterval(timer);
+          githubPopupRef.current = null;
           setIsConnectingGithub(false);
           refreshGitHubConnection();
         }
@@ -170,12 +189,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
     }
   };
 
-  const openRepoPicker = async (projectId: string) => {
-    selectProject(projectId);
-    setShowRepoModal(true);
+  const loadGitHubRepositories = async () => {
     setRepoListLoading(true);
     setRepoListError(null);
-    setRepoSearch('');
+    setFailedRepoAttach(null);
+    setRepoList([]);
 
     try {
       const resp = await listGitHubRepositories({ per_page: 100 });
@@ -187,15 +205,24 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
     }
   };
 
+  const openRepoPicker = async (projectId: string) => {
+    selectProject(projectId);
+    setShowRepoModal(true);
+    setRepoSearch('');
+    await loadGitHubRepositories();
+  };
+
   const handleSelectRepository = async (repoFullName: string) => {
     setAttachingRepo(repoFullName);
     setRepoListError(null);
+    setFailedRepoAttach(null);
 
     try {
       await attachRepoToProject(repoFullName);
       setShowRepoModal(false);
     } catch (err: any) {
       setRepoListError(err.message || `Failed to attach repository ${repoFullName}`);
+      setFailedRepoAttach(repoFullName);
     } finally {
       setAttachingRepo(null);
     }
@@ -730,7 +757,21 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
                   }}
                 >
                   <AlertTriangle size={14} />
-                  <span>{repoListError}</span>
+                  <span style={{ flex: 1 }}>{repoListError}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={repoListLoading || attachingRepo !== null}
+                    onClick={() => {
+                      if (failedRepoAttach) {
+                        void handleSelectRepository(failedRepoAttach);
+                      } else {
+                        void loadGitHubRepositories();
+                      }
+                    }}
+                  >
+                    Retry
+                  </Button>
                 </div>
               )}
 

@@ -93,7 +93,11 @@ class FixProposal(UUIDMixin, TimestampMixin, Base):
     affected_files: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status: Mapped[FixStatus] = mapped_column(
-        SAEnum(FixStatus, name="fixstatus"),
+        SAEnum(
+            FixStatus,
+            name="fixstatus",
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
         nullable=False,
         default=FixStatus.DRAFT,
         index=True,

@@ -202,7 +202,9 @@ class GitHubIntegrationService:
             should_close = True
 
         try:
-            resp = await client.post(GITHUB_OAUTH_TOKEN_URL, json=payload, headers=headers)
+            # GitHub's app user-authorization code exchange expects form-encoded
+            # parameters. Sending JSON can make valid credentials appear missing.
+            resp = await client.post(GITHUB_OAUTH_TOKEN_URL, data=payload, headers=headers)
         except httpx.RequestError as exc:
             logger.error("Network error during GitHub OAuth token exchange: %s", type(exc).__name__)
             raise HTTPException(
@@ -225,6 +227,16 @@ class GitHubIntegrationService:
             error_code = data.get("error")
             error_desc = data.get("error_description", "OAuth code exchange failed")
             logger.warning("GitHub OAuth exchange error: %s", error_code)
+            if error_code == "incorrect_client_credentials":
+                error_desc = (
+                    "GitHub rejected the OAuth credentials sent by the backend. Use "
+                    "the OAuth App Client ID (not its App ID) and the generated Client "
+                    "Secret value from that same app. The authorizing GitHub account "
+                    "can be different from the app owner's. After updating backend/.env, "
+                    "fully restart the backend and start a new connection."
+                )
+            elif error_code == "bad_verification_code":
+                error_desc = "GitHub authorization code expired or was already used. Start the connection again."
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"GitHub OAuth error: {error_desc}",

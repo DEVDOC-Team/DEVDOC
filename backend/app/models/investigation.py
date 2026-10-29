@@ -78,7 +78,11 @@ class Investigation(UUIDMixin, TimestampMixin, Base):
 
     # Lifecycle
     status: Mapped[InvestigationStatus] = mapped_column(
-        SAEnum(InvestigationStatus, name="investigationstatus"),
+        SAEnum(
+            InvestigationStatus,
+            name="investigationstatus",
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
         nullable=False,
         default=InvestigationStatus.PENDING,
         index=True,

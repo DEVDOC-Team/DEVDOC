@@ -56,7 +56,12 @@ class Repository(UUIDMixin, TimestampMixin, Base):
 
     # VCS coordinates
     provider: Mapped[VCSProvider] = mapped_column(
-        SAEnum(VCSProvider, name="vcsprovider"), nullable=False
+        SAEnum(
+            VCSProvider,
+            name="vcsprovider",
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
+        nullable=False,
     )
     # e.g. "acme-corp/backend-api"
     full_name: Mapped[str] = mapped_column(String(512), nullable=False, index=True)

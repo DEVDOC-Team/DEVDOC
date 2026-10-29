@@ -41,6 +41,19 @@ export interface RequestOptions extends RequestInit {
   token?: string | null;
 }
 
+const SERVER_OUTAGE_MESSAGE = "Oops! Something went wrong on our end. We're working to fix it.";
+const SECTION_ERROR_MESSAGE = 'Unable to load this section right now.';
+const ACTION_ERROR_MESSAGE = "We couldn't save your changes. Please check your connection and try again.";
+
+const getPublicErrorMessage = (method: string, status?: number, connectionUnavailable = false): string => {
+  const isReadRequest = ['GET', 'HEAD', 'OPTIONS'].includes(method);
+  if (status === 500 || status === 503 || status === 504 || (connectionUnavailable && isReadRequest)) {
+    return SERVER_OUTAGE_MESSAGE;
+  }
+
+  return ['GET', 'HEAD', 'OPTIONS'].includes(method) ? SECTION_ERROR_MESSAGE : ACTION_ERROR_MESSAGE;
+};
+
 // Token storage key
 export const AUTH_TOKEN_KEY = 'devdoc_auth_token';
 
@@ -86,13 +99,55 @@ export const setOnUnauthorized = (listener: UnauthorizedListener | null): void =
   unauthorizedListener = listener;
 };
 
+const isLoopbackHost = (hostname: string): boolean =>
+  ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname.toLowerCase());
+
 export const getApiBaseUrl = (): string => {
-  return (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8000';
+  const configuredUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+  const pageLocation = typeof window !== 'undefined' ? window.location : null;
+  const fallbackUrl = import.meta.env.DEV ? 'http://127.0.0.1:8000' : pageLocation?.origin;
+  const apiBaseUrl = configuredUrl || fallbackUrl;
+
+  if (!apiBaseUrl) {
+    throw new Error('Set VITE_API_BASE_URL to the FastAPI backend URL for this deployment.');
+  }
+
+  if (pageLocation) {
+    let apiUrl: URL;
+    try {
+      apiUrl = new URL(apiBaseUrl, pageLocation.origin);
+    } catch {
+      throw new Error('VITE_API_BASE_URL must be a valid backend URL.');
+    }
+
+    if (apiUrl.protocol !== 'http:' && apiUrl.protocol !== 'https:') {
+      throw new Error('VITE_API_BASE_URL must use HTTP or HTTPS.');
+    }
+
+    if (pageLocation.protocol === 'https:' && apiUrl.protocol !== 'https:') {
+      throw new Error('An HTTPS frontend requires an HTTPS backend URL.');
+    }
+
+    if (isLoopbackHost(apiUrl.hostname) && !isLoopbackHost(pageLocation.hostname)) {
+      throw new Error(
+        'VITE_API_BASE_URL points to localhost, which is only reachable from the computer running this browser. Set it to the FastAPI URL reachable by this device and allow this frontend origin in backend CORS.'
+      );
+    }
+  }
+
+  return apiBaseUrl.replace(/\/+$/, '');
 };
 
 export async function apiClient<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-  const baseUrl = getApiBaseUrl().replace(/\/$/, '');
-  const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+  const requestMethod = (options.method || 'GET').toUpperCase();
+  let baseUrl: string;
+  let url: string;
+  try {
+    baseUrl = getApiBaseUrl().replace(/\/$/, '');
+    url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+  } catch {
+    throw new ApiError(0, getPublicErrorMessage(requestMethod, undefined, true));
+  }
 
   const {
     timeoutMs = 15000,
@@ -162,22 +217,9 @@ export async function apiClient<T>(endpoint: string, options: RequestOptions = {
     }
 
     if (!response.ok) {
-      let errorMessage = `Request failed with status ${response.status}`;
-      if (bodyData && typeof bodyData === 'object') {
-        if (typeof bodyData.detail === 'string') {
-          errorMessage = bodyData.detail;
-        } else if (Array.isArray(bodyData.detail)) {
-          errorMessage = bodyData.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
-        } else if (bodyData.error && typeof bodyData.error === 'object' && typeof bodyData.error.message === 'string') {
-          errorMessage = bodyData.error.message;
-        } else if (typeof bodyData.error === 'string') {
-          errorMessage = bodyData.error;
-        } else if (typeof bodyData.message === 'string') {
-          errorMessage = bodyData.message;
-        }
-      } else if (typeof bodyData === 'string' && bodyData.trim()) {
-        errorMessage = bodyData.slice(0, 200);
-      }
+      // Keep backend diagnostics out of user-visible messages. Developers can
+      // inspect the server logs for the underlying response details.
+      const errorMessage = getPublicErrorMessage(requestMethod, response.status);
 
       const isPublicEndpoint =
         endpoint.includes('/auth/login') ||
@@ -196,7 +238,7 @@ export async function apiClient<T>(endpoint: string, options: RequestOptions = {
         }
       }
 
-      throw new ApiError(response.status, errorMessage, bodyData);
+      throw new ApiError(response.status, errorMessage);
     }
 
     return bodyData as T;
@@ -208,9 +250,13 @@ export async function apiClient<T>(endpoint: string, options: RequestOptions = {
     }
 
     if (error.name === 'AbortError') {
-      throw new ApiError(0, 'Request timed out or was cancelled');
+      throw new ApiError(0, getPublicErrorMessage(requestMethod, undefined, true));
     }
 
-    throw new ApiError(0, error.message || 'Network connection failed');
+    if (error instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(error.message)) {
+      throw new ApiError(0, getPublicErrorMessage(requestMethod, undefined, true));
+    }
+
+    throw new ApiError(0, getPublicErrorMessage(requestMethod));
   }
 }

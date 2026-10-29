@@ -65,7 +65,11 @@ class Evidence(UUIDMixin, TimestampMixin, Base):
     )
 
     kind: Mapped[EvidenceKind] = mapped_column(
-        SAEnum(EvidenceKind, name="evidencekind"),
+        SAEnum(
+            EvidenceKind,
+            name="evidencekind",
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
         nullable=False,
         index=True,
     )

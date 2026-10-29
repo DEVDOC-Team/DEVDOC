@@ -5,7 +5,7 @@ import type { OAuthProviderInfo } from '../api/types';
 import { Panel } from '../components/ui/Panel';
 import { Button } from '../components/ui/Button';
 import { StatusPulse } from '../components/ui/StatusPulse';
-import { KeyRound, ShieldAlert, ArrowRight, Lock, Mail, ChevronDown, ChevronRight } from 'lucide-react';
+import { ShieldAlert, ArrowRight, Lock, Mail, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface SignInViewProps {
   onSuccess?: () => void;
@@ -148,7 +148,17 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
               marginBottom: '12px',
             }}
           >
-            <KeyRound size={22} />
+            <img
+              src="/assets/devdoc-logo.jpg"
+              alt="DEVDOC logo"
+              width={36}
+              height={36}
+              style={{
+                borderRadius: '7px',
+                objectFit: 'cover',
+                boxShadow: '0 0 10px rgba(245, 158, 11, 0.28)',
+              }}
+            />
           </div>
           <h1
             style={{

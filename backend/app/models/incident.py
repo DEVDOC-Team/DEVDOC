@@ -107,18 +107,30 @@ class Incident(UUIDMixin, TimestampMixin, Base):
 
     # Classification
     severity: Mapped[IncidentSeverity] = mapped_column(
-        SAEnum(IncidentSeverity, name="incidentseverity"),
+        SAEnum(
+            IncidentSeverity,
+            name="incidentseverity",
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
         nullable=False,
         default=IncidentSeverity.MEDIUM,
     )
     status: Mapped[IncidentStatus] = mapped_column(
-        SAEnum(IncidentStatus, name="incidentstatus"),
+        SAEnum(
+            IncidentStatus,
+            name="incidentstatus",
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
         nullable=False,
         default=IncidentStatus.OPEN,
         index=True,
     )
     source: Mapped[IncidentSource] = mapped_column(
-        SAEnum(IncidentSource, name="incidentsource"),
+        SAEnum(
+            IncidentSource,
+            name="incidentsource",
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
         nullable=False,
         default=IncidentSource.MANUAL,
         server_default=sa.text("'manual'"),

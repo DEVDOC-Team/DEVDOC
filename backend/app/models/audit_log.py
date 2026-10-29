@@ -88,7 +88,11 @@ class AuditLog(UUIDMixin, TimestampMixin, Base):
 
     # Outcome of the action
     outcome: Mapped[AuditOutcome | None] = mapped_column(
-        SAEnum(AuditOutcome, name="auditoutcome"),
+        SAEnum(
+            AuditOutcome,
+            name="auditoutcome",
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
         nullable=True,
         index=True,
     )

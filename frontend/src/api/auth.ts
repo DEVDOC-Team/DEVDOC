@@ -34,11 +34,15 @@ export async function loginWithPassword(
 export async function getOAuthAuthorizeUrl(
   provider: OAuthProvider,
   redirectTo?: string,
+  codeChallenge?: string,
   options?: RequestOptions
 ): Promise<OAuthAuthorizeUrlResponse> {
   const query = new URLSearchParams();
   if (redirectTo) {
     query.set('redirect_to', redirectTo);
+  }
+  if (codeChallenge) {
+    query.set('code_challenge', codeChallenge);
   }
   const qs = query.toString();
   return apiClient<OAuthAuthorizeUrlResponse>(

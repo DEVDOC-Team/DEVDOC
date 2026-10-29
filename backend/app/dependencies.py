@@ -28,10 +28,12 @@ async def get_token_payload(
 
 async def get_current_user(
     token_payload: dict[str, Any] = Depends(get_token_payload),
+    authorization: str | None = Header(None, alias="Authorization"),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Resolve and return the authenticated User profile from the verified JWT sub."""
-    user = await get_or_sync_user_profile(db, token_payload)
+    access_token = extract_bearer_token(authorization)
+    user = await get_or_sync_user_profile(db, token_payload, access_token)
     return user
 
 
@@ -69,7 +71,7 @@ async def get_authenticated_db(
     and `auth.uid()` resolve to the authenticated user.
 
     Security & Connection Pool Guarantees:
-    - Scoped to transaction via `SET LOCAL`.
+    - Scoped to transaction via `set_config(..., true)`.
     - Explicitly resets parameter on return to pool via `RESET request.jwt.claim.sub`.
     - Safe no-op on SQLite unit test databases.
     """
@@ -78,7 +80,7 @@ async def get_authenticated_db(
 
     if is_postgres:
         await session.execute(
-            sa.text("SET LOCAL request.jwt.claim.sub = :uid"),
+            sa.text("SELECT set_config('request.jwt.claim.sub', :uid, true)"),
             {"uid": str(current_user.id)},
         )
 
