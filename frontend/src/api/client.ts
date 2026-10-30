@@ -124,10 +124,6 @@ export const getApiBaseUrl = (): string => {
       throw new Error('VITE_API_BASE_URL must use HTTP or HTTPS.');
     }
 
-    if (pageLocation.protocol === 'https:' && apiUrl.protocol !== 'https:') {
-      throw new Error('An HTTPS frontend requires an HTTPS backend URL.');
-    }
-
     if (isLoopbackHost(apiUrl.hostname) && !isLoopbackHost(pageLocation.hostname)) {
       if (import.meta.env.PROD) {
         // A local URL copied into Vercel settings cannot be reached from a
@@ -139,6 +135,13 @@ export const getApiBaseUrl = (): string => {
           'VITE_API_BASE_URL points to localhost, which is only reachable from the computer running this browser. Set it to the FastAPI URL reachable by this device and allow this frontend origin in backend CORS.'
         );
       }
+    }
+
+    // Validate the URL after production loopback fallback so a stale local
+    // VITE_API_BASE_URL in Vercel can use the same-origin HTTPS API rewrite.
+    apiUrl = new URL(apiBaseUrl, pageLocation.origin);
+    if (pageLocation.protocol === 'https:' && apiUrl.protocol !== 'https:') {
+      throw new Error('An HTTPS frontend requires an HTTPS backend URL.');
     }
   }
 
