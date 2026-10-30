@@ -38,7 +38,7 @@ from app.schemas.investigation import (
     InvestigationUpdate,
 )
 from app.services.approval import ApprovalService
-from orchestrator.core.context import InvestigationContext
+from orchestrator.core.context import CancellationToken, InvestigationContext
 from orchestrator.core.factory import create_operational_orchestrator
 from orchestrator.core.orchestrator import DEVDOCOrchestrator
 from orchestrator.core.result import ExecutionStatus, OrchestrationResult
@@ -397,6 +397,7 @@ class InvestigationService:
     def build_orchestration_context(
         investigation: Investigation,
         initiated_by: User | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> InvestigationContext:
         """Construct a strongly typed InvestigationContext from an authorized Investigation model."""
         actor_id = initiated_by.id if initiated_by else investigation.initiated_by_id
@@ -409,6 +410,7 @@ class InvestigationService:
                 "incident_id": str(investigation.incident_id),
                 "project_id": str(investigation.project_id),
             },
+            cancellation_token=cancellation_token or CancellationToken(),
         )
 
     @staticmethod
@@ -602,6 +604,7 @@ class InvestigationService:
         incident: Incident,
         investigation: Investigation,
         orchestrator: DEVDOCOrchestrator | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> InvestigationRunResult:
         """Execute the investigation orchestrator and persist all pipeline results.
 
@@ -672,7 +675,10 @@ class InvestigationService:
                 github_token = user_conn.access_token
 
         # 3. Build context with enriched metadata
-        context = InvestigationService.build_orchestration_context(investigation)
+        context = InvestigationService.build_orchestration_context(
+            investigation,
+            cancellation_token=cancellation_token,
+        )
         if repo_coords:
             context.execution_metadata["github_repo"] = repo_coords
             context.execution_metadata["target_repo"] = repo_coords
@@ -720,6 +726,8 @@ class InvestigationService:
                 ]
 
         async def _approval_recorder(ctx: InvestigationContext) -> uuid.UUID:
+            if ctx.is_cancelled():
+                raise RuntimeError("Investigation stopped before approval artifact recording")
             if (
                 ctx.sandbox_verification_result is None
                 or ctx.sandbox_verification_result.status != VerificationStatus.PASSED
@@ -754,6 +762,34 @@ class InvestigationService:
                 },
             )
             await InvestigationService._persist_evidence(db, investigation, context)
+            if context.is_cancelled():
+                persisted_status = await db.scalar(
+                    select(Investigation.status)
+                    .where(Investigation.id == investigation.id)
+                    .with_for_update()
+                )
+                if persisted_status != InvestigationStatus.CANCELLED:
+                    investigation.status = InvestigationStatus.FAILED
+                    investigation.completed_at = _utcnow()
+                    investigation.error_message = f"Orchestrator execution error: {exc}"
+                    await db.flush()
+                    raise
+                investigation.status = InvestigationStatus.CANCELLED
+                investigation.completed_at = _utcnow()
+                investigation.error_message = context.cancellation_token.reason or "Stopped by user"
+                await db.flush()
+                return InvestigationRunResult(
+                    execution_id=context.execution_id,
+                    investigation_id=investigation.id,
+                    incident_id=incident.id,
+                    project_id=project.id,
+                    workflow_id="devdoc-investigation",
+                    status=ExecutionStatus.CANCELLED,
+                    error_message=investigation.error_message,
+                    started_at=investigation.started_at,
+                    completed_at=investigation.completed_at,
+                    context=context,
+                )
             investigation.status = InvestigationStatus.FAILED
             investigation.completed_at = _utcnow()
             investigation.error_message = f"Orchestrator execution error: {exc}"
@@ -773,6 +809,7 @@ class InvestigationService:
         artifact_id = context.approval_artifact_id
         if (
             artifact_id is None
+            and not context.is_cancelled()
             and context.sandbox_verification_result is not None
             and context.sandbox_verification_result.status == VerificationStatus.PASSED
             and context.root_cause_analysis is not None
@@ -785,20 +822,51 @@ class InvestigationService:
             except Exception as exc:
                 logger.warning("Could not record verified approval artifact: %s", exc)
 
+        # Do not report empty or undiagnosed runs as completed, even if a custom
+        # orchestrator incorrectly returns SUCCESS for an incomplete pipeline.
+        run_status = ExecutionStatus.CANCELLED if context.is_cancelled() else result.status
+        run_error_message = (
+            context.cancellation_token.reason if context.is_cancelled() else result.error_message
+        )
+        collected_evidence_count = (
+            context.evidence_collection.summary.total_evidence_count
+            if context.evidence_collection is not None
+            else 0
+        )
+        if run_status == ExecutionStatus.SUCCESS and collected_evidence_count == 0:
+            run_status = ExecutionStatus.FAILED
+            run_error_message = "No evidence was collected. Confirm GitHub is connected and a repository is selected for this project, then retry."
+        elif run_status == ExecutionStatus.SUCCESS and not has_rca:
+            run_status = ExecutionStatus.FAILED
+            run_error_message = (
+                "The investigation could not produce a root cause diagnosis. Check that AI reasoning is configured, then retry."
+            )
+
+        # Lock the row while finalizing so a concurrent Stop request either wins
+        # cleanly or observes the completed run without being overwritten.
+        persisted_status = await db.scalar(
+            select(Investigation.status)
+            .where(Investigation.id == investigation.id)
+            .with_for_update()
+        )
+        if persisted_status == InvestigationStatus.CANCELLED or context.is_cancelled():
+            run_status = ExecutionStatus.CANCELLED
+            run_error_message = context.cancellation_token.reason or "Stopped by user"
+
         # 5. Map execution result to Investigation lifecycle status
-        if result.status == ExecutionStatus.SUCCESS:
+        if run_status == ExecutionStatus.SUCCESS:
             investigation.status = InvestigationStatus.COMPLETED
             investigation.completed_at = _utcnow()
             investigation.error_message = None
-        elif result.status == ExecutionStatus.CANCELLED:
+        elif run_status == ExecutionStatus.CANCELLED:
             investigation.status = InvestigationStatus.CANCELLED
             investigation.completed_at = _utcnow()
-            if result.error_message:
-                investigation.error_message = result.error_message
+            if run_error_message:
+                investigation.error_message = run_error_message
         else:
             investigation.status = InvestigationStatus.FAILED
             investigation.completed_at = _utcnow()
-            investigation.error_message = result.error_message or "Investigation orchestration failed"
+            investigation.error_message = run_error_message or "Investigation orchestration failed"
 
         await db.flush()
         await db.refresh(investigation)
@@ -809,7 +877,7 @@ class InvestigationService:
                 "investigation_id": str(investigation.id),
                 "incident_id": str(incident.id),
                 "project_id": str(project.id),
-                "orchestration_status": result.status.value,
+                "orchestration_status": run_status.value,
                 "investigation_status": investigation.status.value,
                 "evidence_count": evidence_count,
                 "has_rca": has_rca,
@@ -824,11 +892,11 @@ class InvestigationService:
             incident_id=result.incident_id,
             project_id=result.project_id,
             workflow_id=result.workflow_id,
-            status=result.status,
+            status=run_status,
             stage_results=result.stage_results,
             metadata=result.metadata,
             warnings=result.warnings,
-            error_message=result.error_message,
+            error_message=run_error_message,
             started_at=result.started_at,
             completed_at=result.completed_at,
             duration_ms=result.duration_ms,

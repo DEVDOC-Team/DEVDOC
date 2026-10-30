@@ -6,16 +6,22 @@ Guarantees strict multi-level authorization: project-access boundary + incident 
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import logger
+from app.db.base import _utcnow
+from app.db.session import AsyncSessionLocal, engine
 from app.dependencies import get_authenticated_db, require_active_user, require_project_access
-from app.models.investigation import InvestigationStatus
+from app.models.investigation import Investigation, InvestigationStatus
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.investigation import (
+    InvestigationCancelResponse,
     InvestigationCreate,
     InvestigationDeleteResponse,
     InvestigationListResponse,
@@ -24,12 +30,51 @@ from app.schemas.investigation import (
     InvestigationStatusUpdate,
     InvestigationUpdate,
 )
+from orchestrator.core.context import CancellationToken
 from app.services.investigation import InvestigationService
 
 router = APIRouter(
     prefix="/projects/{project_id}/incidents/{incident_id}/investigations",
     tags=["investigations"],
 )
+
+_active_cancellation_tokens: dict[uuid.UUID, CancellationToken] = {}
+
+
+async def _watch_for_persisted_cancellation(
+    investigation_id: uuid.UUID,
+    user_id: uuid.UUID,
+    token: CancellationToken,
+) -> None:
+    """Observe Stop requests from another worker and signal the run cooperatively."""
+    if engine.dialect.name != "postgresql":
+        return
+
+    while not token.is_cancelled:
+        await asyncio.sleep(0.75)
+        try:
+            async with AsyncSessionLocal() as watch_db:
+                await watch_db.execute(
+                    text("SELECT set_config('request.jwt.claim.sub', :uid, true)"),
+                    {"uid": str(user_id)},
+                )
+                run_status = await watch_db.scalar(
+                    select(Investigation.status).where(Investigation.id == investigation_id)
+                )
+                await watch_db.rollback()
+            if run_status == InvestigationStatus.CANCELLED:
+                token.cancel("Stopped by user")
+                return
+            if run_status is None:
+                return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "Could not check investigation cancellation state",
+                extra={"investigation_id": str(investigation_id)},
+                exc_info=True,
+            )
 
 
 @router.post("", response_model=InvestigationResponse, status_code=status.HTTP_201_CREATED)
@@ -188,6 +233,83 @@ async def transition_investigation_status(
     return InvestigationResponse.model_validate(updated)
 
 
+@router.post("/{investigation_id}/cancel", response_model=InvestigationCancelResponse)
+async def cancel_investigation(
+    project_id: uuid.UUID,
+    incident_id: uuid.UUID,
+    investigation_id: uuid.UUID,
+    project: Project = Depends(require_project_access),
+    current_user: User = Depends(require_active_user),
+    db: AsyncSession = Depends(get_authenticated_db),
+) -> InvestigationCancelResponse:
+    """Stop a pending or running investigation and signal its active worker."""
+    incident = await InvestigationService.get_incident_for_project(
+        db=db,
+        project=project,
+        incident_id=incident_id,
+    )
+    investigation = await InvestigationService.get_investigation(
+        db=db,
+        project=project,
+        incident=incident,
+        investigation_id=investigation_id,
+    )
+
+    if investigation.status == InvestigationStatus.CANCELLED:
+        return InvestigationCancelResponse(
+            cancellation_requested=False,
+            message="Investigation is already stopped.",
+        )
+    if investigation.status not in (InvestigationStatus.PENDING, InvestigationStatus.RUNNING):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This investigation has already finished and cannot be stopped.",
+        )
+
+    stopped_at = _utcnow()
+    changed_id = (
+        await db.execute(
+            update(Investigation)
+            .where(
+                Investigation.id == investigation.id,
+                Investigation.project_id == project.id,
+                Investigation.incident_id == incident.id,
+                Investigation.status.in_((InvestigationStatus.PENDING, InvestigationStatus.RUNNING)),
+            )
+            .values(
+                status=InvestigationStatus.CANCELLED,
+                completed_at=stopped_at,
+                error_message="Stopped by user",
+            )
+            .returning(Investigation.id)
+            .execution_options(synchronize_session=False)
+        )
+    ).scalar_one_or_none()
+
+    if changed_id is None:
+        await db.refresh(investigation)
+        if investigation.status == InvestigationStatus.CANCELLED:
+            return InvestigationCancelResponse(
+                cancellation_requested=False,
+                message="Investigation is already stopped.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This investigation has already finished and cannot be stopped.",
+        )
+
+    investigation.status = InvestigationStatus.CANCELLED
+    investigation.completed_at = stopped_at
+    investigation.error_message = "Stopped by user"
+    await db.commit()
+
+    token = _active_cancellation_tokens.get(investigation.id)
+    if token is not None:
+        token.cancel("Stopped by user")
+
+    return InvestigationCancelResponse(message="Stop requested. The current step is stopping.")
+
+
 @router.delete("/{investigation_id}", response_model=InvestigationDeleteResponse)
 async def delete_investigation(
     project_id: uuid.UUID,
@@ -258,12 +380,65 @@ async def run_investigation(
             detail=f"Investigation '{investigation.id}' is already running",
         )
 
-    result = await InvestigationService.run_investigation_orchestration(
-        db=db,
-        project=project,
-        incident=incident,
-        investigation=investigation,
+    if investigation.status != InvestigationStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot run investigation with status '{investigation.status.value}'",
+        )
+
+    started_at = _utcnow()
+    claimed_id = (
+        await db.execute(
+            update(Investigation)
+            .where(
+                Investigation.id == investigation.id,
+                Investigation.status == InvestigationStatus.PENDING,
+            )
+            .values(
+                status=InvestigationStatus.RUNNING,
+                started_at=started_at,
+                error_message=None,
+            )
+            .returning(Investigation.id)
+            .execution_options(synchronize_session=False)
+        )
+    ).scalar_one_or_none()
+    if claimed_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This investigation has already started or stopped.",
+        )
+
+    investigation.status = InvestigationStatus.RUNNING
+    investigation.started_at = started_at
+    investigation.error_message = None
+    await db.commit()
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT set_config('request.jwt.claim.sub', :uid, true)"),
+            {"uid": str(current_user.id)},
+        )
+
+    token = CancellationToken()
+    _active_cancellation_tokens[investigation.id] = token
+    run_task = asyncio.create_task(
+        InvestigationService.run_investigation_orchestration(
+            db=db,
+            project=project,
+            incident=incident,
+            investigation=investigation,
+            cancellation_token=token,
+        )
     )
+    watcher_task = asyncio.create_task(
+        _watch_for_persisted_cancellation(investigation.id, current_user.id, token)
+    )
+    try:
+        result = await run_task
+    finally:
+        watcher_task.cancel()
+        await asyncio.gather(watcher_task, return_exceptions=True)
+        _active_cancellation_tokens.pop(investigation.id, None)
 
     base_resp = InvestigationResponse.model_validate(investigation)
     return InvestigationRunResponse(

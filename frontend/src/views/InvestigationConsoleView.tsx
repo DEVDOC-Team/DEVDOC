@@ -9,6 +9,7 @@ import {
   GitCommit,
   Lock,
   Play,
+  Square,
   RefreshCw,
   Rocket,
   Route,
@@ -206,12 +207,16 @@ export const InvestigationConsoleView: React.FC<InvestigationConsoleViewProps> =
     activeInvestigation,
     activeApproval,
     runningInvestigation,
+    cancellingInvestigation,
+    investigationStopRequested,
+    canStopInvestigation,
     isPolling,
     isDemoMode,
     selectDemoIncident,
     exitDemoMode,
     error,
     triggerInvestigationRun,
+    cancelInvestigationRun,
     submitApprovalDecision,
     refreshIncidents,
     clearError,
@@ -705,25 +710,47 @@ export const InvestigationConsoleView: React.FC<InvestigationConsoleViewProps> =
             </dl>
 
             <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px solid var(--devdoc-border)' }}>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={triggerInvestigationRun}
-                disabled={runningInvestigation}
-                style={{ width: '100%', justifyContent: 'center' }}
-              >
-                {runningInvestigation ? (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <StatusPulse status="accent" />
-                    <span>Orchestrating Investigation...</span>
-                  </span>
-                ) : (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Play size={13} />
-                    <span>Run Autonomous Investigation</span>
-                  </span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={triggerInvestigationRun}
+                  disabled={runningInvestigation || activeInvestigation?.status === 'running'}
+                  style={{ flex: 1, justifyContent: 'center' }}
+                >
+                  {runningInvestigation || activeInvestigation?.status === 'running' ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <StatusPulse status="accent" />
+                      <span>Orchestrating Investigation...</span>
+                    </span>
+                  ) : (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Play size={13} />
+                      <span>Run Autonomous Investigation</span>
+                    </span>
+                  )}
+                </Button>
+                {canStopInvestigation && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={cancelInvestigationRun}
+                    disabled={cancellingInvestigation || investigationStopRequested}
+                    style={{ justifyContent: 'center', minWidth: '124px' }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Square size={12} />
+                      <span>
+                        {cancellingInvestigation
+                          ? 'Stopping…'
+                          : investigationStopRequested
+                          ? 'Stop Requested'
+                          : 'Stop Investigation'}
+                      </span>
+                    </span>
+                  </Button>
                 )}
-              </Button>
+              </div>
             </div>
           </Panel>
 

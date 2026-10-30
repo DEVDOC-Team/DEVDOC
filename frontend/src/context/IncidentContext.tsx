@@ -6,6 +6,7 @@ import {
   listInvestigations,
   createInvestigation as apiCreateInvestigation,
   runInvestigation as apiRunInvestigation,
+  cancelInvestigation as apiCancelInvestigation,
 } from '../api/investigations';
 import { listApprovals, approveRequest, rejectRequest, cancelRequest } from '../api/approvals';
 import type {
@@ -28,6 +29,9 @@ export interface IncidentContextValue {
   loadingIncidents: boolean;
   loadingInvestigations: boolean;
   runningInvestigation: boolean;
+  cancellingInvestigation: boolean;
+  investigationStopRequested: boolean;
+  canStopInvestigation: boolean;
   isPolling: boolean;
   error: string | null;
   refreshIncidents: () => Promise<void>;
@@ -37,6 +41,7 @@ export interface IncidentContextValue {
   exitDemoMode: () => void;
   createIncident: (data: IncidentCreate) => Promise<Incident>;
   triggerInvestigationRun: () => Promise<void>;
+  cancelInvestigationRun: () => Promise<void>;
   submitApprovalDecision: (approvalId: string, decision: 'approved' | 'rejected', reason: string) => Promise<void>;
   cancelApprovalDecision: (approvalId: string, reason: string) => Promise<void>;
   clearError: () => void;
@@ -55,11 +60,16 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [loadingIncidents, setLoadingIncidents] = useState<boolean>(false);
   const [loadingInvestigations, setLoadingInvestigations] = useState<boolean>(false);
   const [runningInvestigation, setRunningInvestigation] = useState<boolean>(false);
+  const [runningInvestigationId, setRunningInvestigationId] = useState<string | null>(null);
+  const [cancellingInvestigation, setCancellingInvestigation] = useState<boolean>(false);
+  const [investigationStopRequested, setInvestigationStopRequested] = useState<boolean>(false);
   const [isPolling, setIsPolling] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const investigationRunLockRef = useRef(false);
+  const activeRunRef = useRef<{ projectId: string; incidentId: string; investigationId: string } | null>(null);
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -185,8 +195,9 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       pollTimerRef.current = null;
     }
 
-    if (activeInvestigation?.status === 'running') {
+    if (runningInvestigation || activeInvestigation?.status === 'running') {
       setIsPolling(true);
+      void refreshInvestigations();
       pollTimerRef.current = setInterval(() => {
         refreshInvestigations();
       }, 3500);
@@ -200,7 +211,7 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         pollTimerRef.current = null;
       }
     };
-  }, [activeInvestigation?.status, refreshInvestigations]);
+  }, [activeInvestigation?.status, runningInvestigation, refreshInvestigations]);
 
   const createIncident = useCallback(
     async (data: IncidentCreate): Promise<Incident> => {
@@ -224,32 +235,91 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   );
 
   const triggerInvestigationRun = useCallback(async () => {
-    if (!selectedProjectId || !selectedIncidentId) return;
+    if (!selectedProjectId || !selectedIncidentId || investigationRunLockRef.current) return;
 
+    investigationRunLockRef.current = true;
+    activeRunRef.current = null;
+    setRunningInvestigationId(null);
+    setInvestigationStopRequested(false);
     setRunningInvestigation(true);
     setError(null);
 
     try {
       let targetInvId = activeInvestigation ? activeInvestigation.id : null;
+      if (targetInvId && (activeInvestigation?.status === 'pending' || activeInvestigation?.status === 'running')) {
+        setRunningInvestigationId(targetInvId);
+        activeRunRef.current = {
+          projectId: selectedProjectId,
+          incidentId: selectedIncidentId,
+          investigationId: targetInvId,
+        };
+      }
 
       // If no investigation exists or current is completed, create a new one first
-      if (!targetInvId || activeInvestigation?.status === 'completed' || activeInvestigation?.status === 'failed') {
+      if (
+        !targetInvId ||
+        activeInvestigation?.status === 'completed' ||
+        activeInvestigation?.status === 'failed' ||
+        activeInvestigation?.status === 'cancelled'
+      ) {
         const newInv = await apiCreateInvestigation(selectedProjectId, selectedIncidentId, {
           summary: 'Autonomous root-cause diagnosis and candidate patch generation',
           status: 'pending',
         });
         targetInvId = newInv.id;
+        setRunningInvestigationId(targetInvId);
+        activeRunRef.current = {
+          projectId: selectedProjectId,
+          incidentId: selectedIncidentId,
+          investigationId: targetInvId,
+        };
       }
 
-      await apiRunInvestigation(selectedProjectId, selectedIncidentId, targetInvId);
+      const runResult = await apiRunInvestigation(selectedProjectId, selectedIncidentId, targetInvId);
       await refreshInvestigations();
+      if (runResult.status === 'failed') {
+        setError(
+          runResult.error_message ||
+            'The investigation could not complete. Check its data source and configuration, then retry.'
+        );
+      }
     } catch (err: any) {
       const msg = err instanceof ApiError ? err.message : err.message || 'Failed to execute investigation run';
       setError(msg);
+      // A slow run may outlive the request timeout. Refresh its persisted
+      // status so polling and the Stop button remain available if it continues.
+      await refreshInvestigations();
     } finally {
+      investigationRunLockRef.current = false;
+      activeRunRef.current = null;
+      setRunningInvestigationId(null);
+      setInvestigationStopRequested(false);
       setRunningInvestigation(false);
     }
   }, [selectedProjectId, selectedIncidentId, activeInvestigation, refreshInvestigations]);
+
+  const cancelInvestigationRun = useCallback(async () => {
+    const activeRun = activeRunRef.current;
+    const projectId = activeRun?.projectId || selectedProjectId;
+    const incidentId = activeRun?.incidentId || selectedIncidentId;
+    const investigationId = activeRun?.investigationId || (
+      activeInvestigation?.status === 'running' ? activeInvestigation.id : null
+    );
+    if (!projectId || !incidentId || !investigationId || cancellingInvestigation || investigationStopRequested) return;
+
+    setCancellingInvestigation(true);
+    setError(null);
+    try {
+      await apiCancelInvestigation(projectId, incidentId, investigationId);
+      setInvestigationStopRequested(true);
+      await refreshInvestigations();
+    } catch (err: any) {
+      const msg = err instanceof ApiError ? err.message : err.message || 'Unable to stop the investigation right now.';
+      setError(msg);
+    } finally {
+      setCancellingInvestigation(false);
+    }
+  }, [selectedProjectId, selectedIncidentId, activeInvestigation, cancellingInvestigation, investigationStopRequested, refreshInvestigations]);
 
   const submitApprovalDecision = useCallback(
     async (approvalId: string, decision: 'approved' | 'rejected', reason: string) => {
@@ -330,6 +400,9 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         loadingIncidents,
         loadingInvestigations,
         runningInvestigation,
+        cancellingInvestigation,
+        investigationStopRequested,
+        canStopInvestigation: Boolean(runningInvestigationId) || activeInvestigation?.status === 'running',
         isPolling,
         error,
         refreshIncidents,
@@ -339,6 +412,7 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         exitDemoMode,
         createIncident,
         triggerInvestigationRun,
+        cancelInvestigationRun,
         submitApprovalDecision,
         cancelApprovalDecision,
         clearError,

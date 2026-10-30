@@ -122,3 +122,12 @@ class InvestigationRunResponse(InvestigationResponse):
     approval_artifact_id: uuid.UUID | None = None
     approval_status: str | None = None
 
+
+class InvestigationCancelResponse(BaseModel):
+    """Result of requesting cancellation for an active investigation."""
+
+    success: bool = True
+    status: InvestigationStatus = InvestigationStatus.CANCELLED
+    cancellation_requested: bool = True
+    message: str = "Investigation stop requested."
+

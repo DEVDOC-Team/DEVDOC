@@ -16,6 +16,13 @@ export interface ListInvestigationsParams {
   status?: InvestigationStatus;
 }
 
+export interface InvestigationCancelResponse {
+  success: boolean;
+  status: InvestigationStatus;
+  cancellation_requested: boolean;
+  message: string;
+}
+
 /**
  * List investigations for a verified incident.
  * Endpoint: GET /api/v1/projects/{project_id}/incidents/{incident_id}/investigations
@@ -152,6 +159,28 @@ export async function runInvestigation(
 ): Promise<InvestigationRunResponse> {
   return apiClient<InvestigationRunResponse>(
     `/api/v1/projects/${projectId}/incidents/${incidentId}/investigations/${investigationId}/run`,
+    {
+      method: 'POST',
+      // Orchestration can take longer than ordinary API calls. Keep the run
+      // request alive so the Stop control remains available during execution.
+      timeoutMs: 120_000,
+      ...options,
+    }
+  );
+}
+
+/**
+ * Request cancellation of an active investigation.
+ * Endpoint: POST /api/v1/projects/{project_id}/incidents/{incident_id}/investigations/{investigation_id}/cancel
+ */
+export async function cancelInvestigation(
+  projectId: string,
+  incidentId: string,
+  investigationId: string,
+  options?: RequestOptions
+): Promise<InvestigationCancelResponse> {
+  return apiClient<InvestigationCancelResponse>(
+    `/api/v1/projects/${projectId}/incidents/${incidentId}/investigations/${investigationId}/cancel`,
     {
       method: 'POST',
       ...options,

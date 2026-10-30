@@ -118,7 +118,6 @@ class CollectEvidenceStage(BaseStage):
 
         agent_results: list[AgentResult] = []
         warnings: list[str] = []
-        errors: list[str] = []
         has_failure = False
 
         for agent in self.agents:
@@ -135,7 +134,6 @@ class CollectEvidenceStage(BaseStage):
             except Exception as exc:
                 agent_duration = (time.perf_counter() - agent_start) * 1000.0
                 err_text = f"Unhandled exception in agent '{agent.identifier}': {exc}"
-                errors.append(err_text)
                 res = AgentResult(
                     agent_id=agent.identifier,
                     status=ExecutionStatus.FAILED,
@@ -151,15 +149,11 @@ class CollectEvidenceStage(BaseStage):
             agent_results.append(res)
             if res.status == ExecutionStatus.FAILED:
                 has_failure = True
-                if res.error_message:
-                    errors.append(res.error_message)
             if res.warnings:
                 warnings.extend(res.warnings)
 
         output_meta: dict[str, Any] = {
-            "evidence_collection_status": "completed"
-            if self.agents
-            else "completed_without_agents",
+            "evidence_collection_status": "collecting" if self.agents else "no_agents_configured",
             "evidence_reference_count": len(context.collected_evidence_references),
             "agents_executed": [a.agent_id for a in agent_results],
             "agents_count": len(agent_results),
@@ -177,11 +171,22 @@ class CollectEvidenceStage(BaseStage):
             context.add_warning(warning)
             if warning not in warnings:
                 warnings.append(warning)
+
+        if has_failure:
+            output_meta["evidence_collection_status"] = "failed"
+            err_msg = "Evidence collection failed. Check the connected data source and its access, then retry."
+        elif evidence_collection.summary.total_evidence_count == 0:
+            has_failure = True
+            output_meta["evidence_collection_status"] = "no_evidence_collected"
+            err_msg = "No evidence was collected. Confirm GitHub is connected and a repository is selected for this project, then retry."
+        else:
+            output_meta["evidence_collection_status"] = "completed"
+            err_msg = None
+
         context.record_stage_complete(self.stage_id)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
         stage_status = ExecutionStatus.FAILED if has_failure else ExecutionStatus.SUCCESS
-        err_msg = "; ".join(errors) if errors else None
 
         return StageResult(
             stage_id=self.stage_id,
@@ -232,6 +237,21 @@ class AnalyzeStage(BaseStage):
                 "disabled" if self.knowledge_search_service is None else "pending"
             ),
         }
+        if self.llm_service is None:
+            output_meta["analysis_status"] = "unavailable"
+            output_meta["knowledge_search_status"] = "skipped_reasoning_unavailable"
+            context.record_stage_complete(self.stage_id)
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            return StageResult(
+                stage_id=self.stage_id,
+                status=ExecutionStatus.FAILED,
+                output_metadata=output_meta,
+                error_message="AI reasoning is not configured for this deployment. Enable the reasoning provider, then retry.",
+                started_at=started_at,
+                completed_at=datetime.now(UTC),
+                duration_ms=duration_ms,
+            )
+
         status = ExecutionStatus.SUCCESS
         error_message: str | None = None
         if (
@@ -344,10 +364,14 @@ class DiagnoseStage(BaseStage):
         context.record_stage_start(self.stage_id)
 
         output_meta: dict[str, Any] = {
-            "diagnosis_status": "disabled" if self.rca_service is None else "pending",
+            "diagnosis_status": "unavailable" if self.rca_service is None else "pending",
         }
-        status = ExecutionStatus.SUCCESS
-        error_message: str | None = None
+        status = ExecutionStatus.FAILED if self.rca_service is None else ExecutionStatus.SUCCESS
+        error_message: str | None = (
+            "Root cause analysis is not configured for this deployment. Enable the reasoning provider, then retry."
+            if self.rca_service is None
+            else None
+        )
         if self.rca_service is not None:
             try:
                 analysis = await self.rca_service.analyze(context)
