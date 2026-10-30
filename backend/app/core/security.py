@@ -83,7 +83,7 @@ def verify_and_decode_jwt(
     Validates:
     - Cryptographic signature (never skipped or bypassed)
     - Algorithm strictly matches the explicitly configured expected algorithm (ES256 or HS256)
-    - Expiration time (exp)
+    - JWT time claims with a small, configurable allowance for clock skew
     - Subject claim (sub) as valid UUID
     - Audience (aud) when configured
     - Issuer (iss) when configured (normalized without trailing slashes)
@@ -240,12 +240,20 @@ def verify_and_decode_jwt(
             audience=jwt_audience if jwt_audience else None,
             issuer=jwt_issuer if jwt_issuer else None,
             options=decode_options,
+            leeway=getattr(cfg, "supabase_jwt_clock_skew_seconds", 60),
         )
     except jwt.ExpiredSignatureError as exc:
         logger.info("Authentication failed: token has expired")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    except jwt.ImmatureSignatureError as exc:
+        logger.warning("Authentication failed: token is not yet valid; check clock synchronization")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token is not yet valid",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
     except jwt.MissingRequiredClaimError as exc:

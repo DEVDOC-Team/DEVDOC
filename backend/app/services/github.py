@@ -385,8 +385,8 @@ class GitHubIntegrationService:
             raw_repos = await client.list_user_repositories(page=page, per_page=per_page)
         except GitHubAuthenticationError as exc:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="GitHub access token expired or revoked. Please reconnect your account.",
+                status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+                detail="GitHub access needs to be reauthorized. Reconnect your GitHub account and try again.",
             ) from exc
         except GitHubRateLimitError as exc:
             raise HTTPException(
@@ -477,8 +477,8 @@ class GitHubIntegrationService:
             ) from exc
         except GitHubAuthenticationError as exc:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="GitHub credentials expired or revoked. Please reconnect your account.",
+                status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+                detail="GitHub access needs to be reauthorized. Reconnect your GitHub account and try again.",
             ) from exc
         except GitHubPermissionError as exc:
             raise HTTPException(

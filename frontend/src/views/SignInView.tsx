@@ -5,7 +5,7 @@ import type { OAuthProviderInfo } from '../api/types';
 import { Panel } from '../components/ui/Panel';
 import { Button } from '../components/ui/Button';
 import { StatusPulse } from '../components/ui/StatusPulse';
-import { ShieldAlert, ArrowRight, Lock, Mail, ChevronDown, ChevronRight } from 'lucide-react';
+import { ShieldAlert, ArrowRight, Lock, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface SignInViewProps {
   onSuccess?: () => void;
@@ -43,9 +43,7 @@ const GitHubIcon: React.FC<{ size?: number }> = ({ size = 18 }) => (
 );
 
 export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
-  const { signInWithCredentials, signInWithToken, signInWithOAuth, status, error, clearError } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const { signInWithToken, signInWithOAuth, status, error, clearError } = useAuth();
   const [persistSession, setPersistSession] = useState(true);
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
   const [oauthLoadingProvider, setOauthLoadingProvider] = useState<'google' | 'github' | null>(null);
@@ -92,31 +90,14 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
     clearError();
     setValidationMsg(null);
 
-    if (showDirectToken) {
-      const cleanToken = tokenInput.trim();
-      if (!cleanToken) {
-        setValidationMsg('Please provide a valid Supabase JWT Bearer token.');
-        return;
-      }
-      const res = await signInWithToken(cleanToken, persistSession);
-      if (res.success && onSuccess) {
-        onSuccess();
-      }
-    } else {
-      const cleanEmail = email.trim();
-      if (!cleanEmail) {
-        setValidationMsg('Please enter your email address.');
-        return;
-      }
-      if (!password) {
-        setValidationMsg('Please enter your password.');
-        return;
-      }
-
-      const res = await signInWithCredentials(cleanEmail, password, persistSession);
-      if (res.success && onSuccess) {
-        onSuccess();
-      }
+    const cleanToken = tokenInput.trim();
+    if (!cleanToken) {
+      setValidationMsg('Please provide a valid Supabase JWT Bearer token.');
+      return;
+    }
+    const res = await signInWithToken(cleanToken, persistSession);
+    if (res.success && onSuccess) {
+      onSuccess();
     }
   };
 
@@ -172,7 +153,7 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
             Sign In to DEVDOC
           </h1>
           <p style={{ fontSize: '12px', color: 'var(--devdoc-fg-muted)', marginTop: '4px' }}>
-            Authenticate with Google, GitHub, or your registered account to manage projects and run investigations.
+            Authenticate with Google or GitHub to manage projects and run investigations.
           </p>
         </div>
 
@@ -275,134 +256,49 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
-              marginBottom: '18px',
-              color: 'var(--devdoc-fg-dim)',
+              justifyContent: 'space-between',
+              marginBottom: showDirectToken ? '14px' : '0',
+              fontSize: '12px',
+              color: 'var(--devdoc-fg-muted)',
             }}
           >
-            <div style={{ flex: 1, height: '1px', background: 'var(--devdoc-border-subtle)' }} />
-            <span
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={persistSession}
+                onChange={(e) => setPersistSession(e.target.checked)}
+                style={{ accentColor: 'var(--devdoc-accent)' }}
+              />
+              Remember session on this device
+            </label>
+
+            <button
+              type="button"
+              aria-expanded={showDirectToken}
+              onClick={() => {
+                setShowDirectToken(!showDirectToken);
+                setValidationMsg(null);
+                clearError();
+              }}
               style={{
-                fontSize: '10px',
-                fontFamily: 'var(--font-display)',
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                color: 'var(--devdoc-fg-muted)',
+                background: 'none',
+                border: 'none',
+                color: 'var(--devdoc-accent)',
+                fontSize: '11px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: 0,
               }}
             >
-              or continue with email
-            </span>
-            <div style={{ flex: 1, height: '1px', background: 'var(--devdoc-border-subtle)' }} />
+              {showDirectToken ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              {showDirectToken ? 'Hide Direct Token' : 'Direct Token'}
+            </button>
           </div>
 
-          <form onSubmit={handleSubmit}>
-            {!showDirectToken ? (
-              <>
-                <div style={{ marginBottom: '14px' }}>
-                  <label
-                    htmlFor="auth-email-input"
-                    style={{
-                      display: 'block',
-                      fontSize: '11px',
-                      fontFamily: 'var(--font-display)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                      color: 'var(--devdoc-fg-muted)',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    Email Address
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      id="auth-email-input"
-                      type="email"
-                      required
-                      autoComplete="email"
-                      value={email}
-                      onChange={(e) => {
-                        setEmail(e.target.value);
-                        if (validationMsg) setValidationMsg(null);
-                      }}
-                      placeholder="engineer@company.com"
-                      style={{
-                        width: '100%',
-                        background: 'var(--devdoc-surface-sunken)',
-                        border: '1px solid var(--devdoc-border)',
-                        color: 'var(--devdoc-fg)',
-                        borderRadius: 'var(--radius-sm)',
-                        padding: '9px 12px 9px 34px',
-                        fontSize: '13px',
-                      }}
-                      disabled={isLoading}
-                    />
-                    <Mail
-                      size={15}
-                      style={{
-                        position: 'absolute',
-                        left: '10px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: 'var(--devdoc-fg-dim)',
-                        pointerEvents: 'none',
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: '16px' }}>
-                  <label
-                    htmlFor="auth-password-input"
-                    style={{
-                      display: 'block',
-                      fontSize: '11px',
-                      fontFamily: 'var(--font-display)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                      color: 'var(--devdoc-fg-muted)',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    Password
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      id="auth-password-input"
-                      type="password"
-                      required
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        if (validationMsg) setValidationMsg(null);
-                      }}
-                      placeholder="••••••••"
-                      style={{
-                        width: '100%',
-                        background: 'var(--devdoc-surface-sunken)',
-                        border: '1px solid var(--devdoc-border)',
-                        color: 'var(--devdoc-fg)',
-                        borderRadius: 'var(--radius-sm)',
-                        padding: '9px 12px 9px 34px',
-                        fontSize: '13px',
-                      }}
-                      disabled={isLoading}
-                    />
-                    <Lock
-                      size={15}
-                      style={{
-                        position: 'absolute',
-                        left: '10px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: 'var(--devdoc-fg-dim)',
-                        pointerEvents: 'none',
-                      }}
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
+          {showDirectToken && (
+            <form onSubmit={handleSubmit}>
               <div style={{ marginBottom: '14px' }}>
                 <label
                   htmlFor="auth-token-input"
@@ -442,71 +338,18 @@ export const SignInView: React.FC<SignInViewProps> = ({ onSuccess }) => {
                   disabled={isLoading}
                 />
               </div>
-            )}
 
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '16px',
-                fontSize: '12px',
-                color: 'var(--devdoc-fg-muted)',
-              }}
-            >
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={persistSession}
-                  onChange={(e) => setPersistSession(e.target.checked)}
-                  style={{ accentColor: 'var(--devdoc-accent)' }}
-                />
-                Remember session on this device
-              </label>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDirectToken(!showDirectToken);
-                  setValidationMsg(null);
-                  clearError();
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--devdoc-accent)',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: 0,
-                }}
+              <Button
+                type="submit"
+                variant="primary"
+                style={{ width: '100%', padding: '10px' }}
+                disabled={isLoading || !tokenInput.trim()}
+                icon={<ArrowRight size={14} />}
               >
-                {showDirectToken ? (
-                  <>
-                    <ChevronDown size={13} />
-                    Email / Password
-                  </>
-                ) : (
-                  <>
-                    <ChevronRight size={13} />
-                    Direct Token
-                  </>
-                )}
-              </button>
-            </div>
-
-            <Button
-              type="submit"
-              variant="primary"
-              style={{ width: '100%', padding: '10px' }}
-              disabled={isLoading || (!showDirectToken && (!email.trim() || !password)) || (showDirectToken && !tokenInput.trim())}
-              icon={<ArrowRight size={14} />}
-            >
-              {isLoading ? 'Authenticating with Supabase...' : 'Sign In to Platform'}
-            </Button>
-          </form>
+                {isLoading ? 'Authenticating with Supabase...' : 'Sign In to Platform'}
+              </Button>
+            </form>
+          )}
 
           <div
             style={{

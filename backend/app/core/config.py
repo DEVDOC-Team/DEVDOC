@@ -178,6 +178,7 @@ class Settings(BaseSettings):
     supabase_jwt_audience: str = Field(default="authenticated")
     supabase_jwt_issuer: str | None = Field(default=None)
     supabase_jwks_url: str | None = Field(default=None)
+    supabase_jwt_clock_skew_seconds: int = Field(default=60, ge=0, le=300)
 
     @field_validator("supabase_jwt_issuer", mode="before")
     @classmethod

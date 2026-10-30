@@ -4,6 +4,7 @@ import { Panel } from '../components/ui/Panel';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { useAuth } from '../context/AuthContext';
+import { ApiError } from '../api/client';
 import {
   initiateGitHubConnect,
   listGitHubRepositories,
@@ -101,6 +102,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
   const [repoList, setRepoList] = useState<GitHubRepositoryInfo[]>([]);
   const [repoListLoading, setRepoListLoading] = useState(false);
   const [repoListError, setRepoListError] = useState<string | null>(null);
+  const [githubNeedsReauthorization, setGithubNeedsReauthorization] = useState(false);
   const [failedRepoAttach, setFailedRepoAttach] = useState<string | null>(null);
   const [repoSearch, setRepoSearch] = useState('');
   const [attachingRepo, setAttachingRepo] = useState<string | null>(null);
@@ -145,27 +147,35 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
   const handleConnectGitHub = async () => {
     setGithubActionError(null);
     setIsConnectingGithub(true);
+
+    const width = 600;
+    const height = 750;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    const popup = window.open(
+      'about:blank',
+      'devdoc_github_oauth',
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,status=no`
+    );
+
+    if (!popup) {
+      setGithubActionError('Allow pop-ups for this site, then click Connect GitHub again.');
+      setIsConnectingGithub(false);
+      return;
+    }
+
+    githubPopupRef.current = popup;
     try {
       const resp = await initiateGitHubConnect();
       if (!resp.authorization_url) {
         throw new Error('No authorization URL returned by server');
       }
 
-      const width = 600;
-      const height = 750;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
-
-      const popup = window.open(
-        resp.authorization_url,
-        'devdoc_github_oauth',
-        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,status=no`
-      );
-      githubPopupRef.current = popup;
+      popup.location.href = resp.authorization_url;
 
       // Periodically check if popup closed
       const timer = setInterval(() => {
-        if (!popup || popup.closed) {
+        if (popup.closed) {
           clearInterval(timer);
           githubPopupRef.current = null;
           setIsConnectingGithub(false);
@@ -173,6 +183,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
         }
       }, 1000);
     } catch (err: any) {
+      popup.close();
+      githubPopupRef.current = null;
       setGithubActionError(err.message || 'Failed to initiate GitHub authorization flow');
       setIsConnectingGithub(false);
     }
@@ -190,8 +202,15 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
   };
 
   const loadGitHubRepositories = async () => {
+    if (!githubConnection?.connected) {
+      setGithubNeedsReauthorization(false);
+      setRepoListError('Connect your GitHub account above before browsing repositories.');
+      return;
+    }
+
     setRepoListLoading(true);
     setRepoListError(null);
+    setGithubNeedsReauthorization(false);
     setFailedRepoAttach(null);
     setRepoList([]);
 
@@ -199,13 +218,24 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
       const resp = await listGitHubRepositories({ per_page: 100 });
       setRepoList(resp.items || []);
     } catch (err: any) {
-      setRepoListError(err.message || 'Failed to fetch repositories from GitHub');
+      if (err instanceof ApiError && err.status === 428) {
+        setGithubNeedsReauthorization(true);
+        setRepoListError('Your saved GitHub access was rejected. Reconnect GitHub here, then retry. You do not need to sign out of DEVDOC.');
+      } else {
+        setGithubNeedsReauthorization(false);
+        setRepoListError(err.message || 'Unable to load repositories right now.');
+      }
     } finally {
       setRepoListLoading(false);
     }
   };
 
   const openRepoPicker = async (projectId: string) => {
+    if (!githubConnection?.connected) {
+      setGithubActionError('Sign-in to DEVDOC is complete. Connect GitHub above to grant repository access.');
+      return;
+    }
+
     selectProject(projectId);
     setShowRepoModal(true);
     setRepoSearch('');
@@ -219,9 +249,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
 
     try {
       await attachRepoToProject(repoFullName);
+      setGithubNeedsReauthorization(false);
       setShowRepoModal(false);
     } catch (err: any) {
-      setRepoListError(err.message || `Failed to attach repository ${repoFullName}`);
+      if (err instanceof ApiError && err.status === 428) {
+        setGithubNeedsReauthorization(true);
+        setRepoListError('Your saved GitHub access was rejected. Reconnect GitHub here, then retry. You do not need to sign out of DEVDOC.');
+      } else {
+        setGithubNeedsReauthorization(false);
+        setRepoListError(err.message || `Unable to attach repository ${repoFullName}.`);
+      }
       setFailedRepoAttach(repoFullName);
     } finally {
       setAttachingRepo(null);
@@ -458,7 +495,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
                       Connect your GitHub account to enable repository investigation
                     </p>
                     <p style={{ fontSize: '12px', color: 'var(--devdoc-fg-muted)', margin: '4px 0 0 0' }}>
-                      DEVDOC securely accesses authorized repositories via GitHub OAuth. OAuth state tokens are cryptographically signed to prevent CSRF. Tokens are stored encrypted on the backend.
+                      Signing in to DEVDOC with GitHub does not grant repository access. Connect GitHub here to authorize repositories for this account.
                     </p>
                   </div>
 
@@ -758,6 +795,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onNavigate }) => {
                 >
                   <AlertTriangle size={14} />
                   <span style={{ flex: 1 }}>{repoListError}</span>
+                  {githubNeedsReauthorization && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={isConnectingGithub || githubConnectionLoading}
+                      onClick={() => void handleConnectGitHub()}
+                    >
+                      {isConnectingGithub ? 'Connecting…' : 'Reconnect GitHub'}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { clearStoredToken, getStoredToken, setStoredToken, setOnUnauthorized, ApiError } from '../api/client';
-import { getMyProfile, loginWithPassword, syncProfile, getOAuthAuthorizeUrl, exchangeOAuthCode } from '../api/auth';
+import { getMyProfile, loginWithPassword, getOAuthAuthorizeUrl, exchangeOAuthCode } from '../api/auth';
 import type { User, OAuthProvider } from '../api/types';
 
 export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated';
@@ -288,11 +288,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setToken(rawToken);
 
             const profile = await getMyProfile({ token: rawToken });
-            try {
-              await syncProfile({ token: rawToken });
-            } catch {
-              // Non-fatal
-            }
 
             setUser(profile);
             const resolvedProvider =
@@ -306,7 +301,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsAuthResolving(false);
             return;
           } catch (err: any) {
-            setError(err.message || 'Failed to initialize session from OAuth token');
+            setError(
+              err instanceof ApiError && err.isUnauthorized
+                ? "We couldn't sign you in. Please try again."
+                : err.message || 'Failed to initialize session from OAuth token',
+            );
             setStatus('unauthenticated');
             setIsAuthResolving(false);
             return;
@@ -343,11 +342,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setToken(exchangedToken);
 
             const profile = await getMyProfile({ token: exchangedToken });
-            try {
-              await syncProfile({ token: exchangedToken });
-            } catch {
-              // Non-fatal
-            }
 
             setUser(profile);
             const resolvedProvider =
@@ -364,7 +358,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (typeof window !== 'undefined' && window.sessionStorage) {
               sessionStorage.removeItem(OAUTH_CODE_VERIFIER_KEY);
             }
-            setError(err.message || 'Failed to exchange OAuth authorization code');
+            setError(
+              err instanceof ApiError && err.isUnauthorized
+                ? "We couldn't sign you in. Please try again."
+                : err.message || 'Failed to exchange OAuth authorization code',
+            );
             setStatus('unauthenticated');
             setIsAuthResolving(false);
             return;
