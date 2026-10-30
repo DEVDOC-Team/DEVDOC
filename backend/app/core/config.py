@@ -144,12 +144,11 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     # Database — PostgreSQL / Supabase
     #
-    # DATABASE_URL      — async URL used by SQLAlchemy at runtime
-    #                     format: postgresql+asyncpg://user:pass@host:port/db
-    #
-    # DIRECT_DATABASE_URL — URL used by Alembic migrations. This project uses
-    #                     asyncpg for database connections; standard Supabase
-    #                     postgresql:// URLs are normalized to asyncpg.
+    # DATABASE_URL      — primary async URL used by the app and Alembic.
+    #                     On IPv4-only hosts use Supabase Session Pooler.
+    # DIRECT_DATABASE_URL — optional fallback for hosts with IPv6/direct access.
+    #                     Both standard PostgreSQL URL schemes are normalized
+    #                     to asyncpg when passed to async SQLAlchemy.
     # ------------------------------------------------------------------ #
     database_url: str = Field(default="")
     direct_database_url: str = Field(default="")

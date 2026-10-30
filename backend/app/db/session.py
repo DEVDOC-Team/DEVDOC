@@ -11,7 +11,7 @@ Usage in FastAPI route handlers
 Connection strategy
 -------------------
 * Runtime (FastAPI) -- asyncpg via create_async_engine and AsyncSession
-* Migrations (Alembic) -- asyncpg via DIRECT_DATABASE_URL
+* Migrations (Alembic) -- asyncpg via DATABASE_URL (DIRECT_DATABASE_URL fallback)
 * Unit tests -- aiosqlite in-memory via TEST_DATABASE_URL override
 """
 

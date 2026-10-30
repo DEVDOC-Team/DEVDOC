@@ -4,9 +4,13 @@ Supports both offline (SQL script generation) and online (live DB) modes.
 
 Database URL strategy
 ---------------------
-* Online migrations prefer ``DIRECT_DATABASE_URL`` and use asyncpg for
-  PostgreSQL connections. Standard Supabase ``postgresql://`` URLs are
-  normalized to the async driver scheme before connecting.
+* Online migrations prefer ``DATABASE_URL`` so they use the same reachable
+  endpoint as the application. This matters on IPv4-only hosts such as Render:
+  Supabase's direct ``db.<project>.supabase.co`` endpoint is IPv6-only unless
+  the project has IPv4 enabled. Use the Supabase Session Pooler URL there.
+* ``DIRECT_DATABASE_URL`` is only a fallback for environments that can reach
+  the direct endpoint. Standard Supabase ``postgresql://`` URLs are normalized
+  to the async driver scheme before connecting.
 * Alembic's synchronous migration operations run through SQLAlchemy's async
   connection bridge, using the same asyncpg driver as the FastAPI runtime.
 
@@ -54,26 +58,26 @@ def _get_url(offline: bool = False) -> str:
     """Return the database URL for migrations.
 
     Precedence:
-    1. DIRECT_DATABASE_URL from settings (normalized to asyncpg for PostgreSQL)
-    2. DATABASE_URL from settings (normalized to asyncpg for PostgreSQL)
+    1. DATABASE_URL from settings (normalized to asyncpg for PostgreSQL)
+    2. DIRECT_DATABASE_URL from settings (normalized to asyncpg for PostgreSQL)
     3. Offline fallback to postgresql:// for DDL SQL rendering without credentials.
 
     Never falls back to the placeholder in alembic.ini.
     """
-    direct_url = settings.direct_database_url
-    if direct_url:
-        return normalize_async_database_url(direct_url)
-
     url = settings.database_url
     if url:
         return normalize_async_database_url(url)
+
+    direct_url = settings.direct_database_url
+    if direct_url:
+        return normalize_async_database_url(direct_url)
 
     if offline:
         return "postgresql://postgres:postgres@localhost:5432/postgres"
 
     raise RuntimeError(
         "No database URL configured for migrations. "
-        "Set DIRECT_DATABASE_URL or DATABASE_URL in your .env file."
+        "Set DATABASE_URL (recommended) or DIRECT_DATABASE_URL in your .env file."
     )
 
 
